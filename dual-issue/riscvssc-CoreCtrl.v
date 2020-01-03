@@ -7,6 +7,7 @@
 
 `include "riscvssc-InstMsg.v"
 `include "riscvssc-CoreScoreboard.v"
+`include "riscvssc-CoreReorderBuffer.v"
 
 module riscv_CoreCtrl
 (
@@ -36,20 +37,20 @@ module riscv_CoreCtrl
   // Controls Signals (ctrl->dpath)
 
   output  [1:0] pc_mux_sel_Phl,
-  output        steering_mux_sel_Dhl,
-  output  [3:0] opA0_byp_mux_sel_Dhl,
-  output  [1:0] opA0_mux_sel_Dhl,
-  output  [3:0] opA1_byp_mux_sel_Dhl,
-  output  [2:0] opA1_mux_sel_Dhl,
-  output  [3:0] opB0_byp_mux_sel_Dhl,
-  output  [1:0] opB0_mux_sel_Dhl,
-  output  [3:0] opB1_byp_mux_sel_Dhl,
-  output  [2:0] opB1_mux_sel_Dhl,
-  output [31:0] instA_Dhl,
-  output [31:0] instB_Dhl,
+  output        steering_mux_sel_Ihl,
+  output  [3:0] opA0_byp_mux_sel_Ihl,
+  output  [1:0] opA0_mux_sel_Ihl,
+  output  [3:0] opA1_byp_mux_sel_Ihl,
+  output  [2:0] opA1_mux_sel_Ihl,
+  output  [3:0] opB0_byp_mux_sel_Ihl,
+  output  [1:0] opB0_mux_sel_Ihl,
+  output  [3:0] opB1_byp_mux_sel_Ihl,
+  output  [2:0] opB1_mux_sel_Ihl,
+  output [31:0] instA_Ihl,
+  output [31:0] instB_Ihl,
   output  [3:0] aluA_fn_X0hl,
   output  [3:0] aluB_fn_X0hl,
-  output  [2:0] muldivreq_msg_fn_Dhl,
+  output  [2:0] muldivreq_msg_fn_Ihl,
   output        muldivreq_val,
   input         muldivreq_rdy,
   input         muldivresp_val,
@@ -60,12 +61,9 @@ module riscv_CoreCtrl
   output        muldiv_mux_sel_X3hl,
   output        execute_mux_sel_X3hl,
   output        memex_mux_sel_X1hl,
-  output        rfA_wen_out_Whl,
-  output  [4:0] rfA_waddr_Whl,
-  output        rfB_wen_out_Whl,
-  output  [4:0] rfB_waddr_Whl,
   output        stall_Fhl,
   output        stall_Dhl,
+  output        stall_Ihl,
   output        stall_X0hl,
   output        stall_X1hl,
   output        stall_X2hl,
@@ -82,6 +80,25 @@ module riscv_CoreCtrl
   input         branch_cond_geu_X0hl,
   input  [31:0] proc2csr_data_Whl,
 
+  // Reorder Buffer Signals (ctrl->dpath)
+
+  output [ 4:0] opA0_byp_rob_slot_Ihl,
+  output [ 4:0] opA1_byp_rob_slot_Ihl,
+  output [ 4:0] opB0_byp_rob_slot_Ihl,
+  output [ 4:0] opB1_byp_rob_slot_Ihl,
+
+  output        rob_fill_wen_A_Whl,
+  output [ 4:0] rob_fill_slot_A_Whl,
+  output        rob_fill_wen_B_Whl,
+  output [ 4:0] rob_fill_slot_B_Whl,
+
+  output        rob_commit_wen_1_Chl,
+  output [ 4:0] rob_commit_slot_1_Chl,
+  output [ 4:0] rob_commit_waddr_1_Chl,
+  output        rob_commit_wen_2_Chl,
+  output [ 4:0] rob_commit_slot_2_Chl,
+  output [ 4:0] rob_commit_waddr_2_Chl,
+
   // CSR Status
 
   output [31:0] csr_status
@@ -95,7 +112,7 @@ module riscv_CoreCtrl
 
   assign pc_mux_sel_Phl
     = brj_taken_X0hl   ? pm_b
-    : brj_taken_Dhl    ? pc_mux_sel_Dhl
+    : brj_taken_Ihl    ? pc_mux_sel_Ihl
     :                    pm_p;
 
   // Only send a valid imem request if not stalled
@@ -153,7 +170,7 @@ module riscv_CoreCtrl
   // instruction or if there was an exception in X stage
 
   wire squash_Fhl
-    = ( inst_val_Dhl && brj_taken_Dhl )
+    = ( inst_val_Ihl && brj_taken_Ihl )
    || ( inst_val_X0hl && brj_taken_X0hl );
 
   // Stall in F if D is stalled
@@ -226,14 +243,15 @@ module riscv_CoreCtrl
       ir0_Dhl    <= imemresp0_queue_mux_out_Fhl;
       ir1_Dhl    <= imemresp1_queue_mux_out_Fhl;
 
-      bubble_Dhl <= bubble_next_Fhl && !squash_first_D_inst;
+      // bubble_Dhl <= bubble_next_Fhl && !squash_first_D_inst;
+      bubble_Dhl <= bubble_next_Fhl;
     end
 
-    // Always send a bubble to the decode stage if a branch or jump is taken
+    // // Always send a bubble to the decode stage if a branch or jump is taken
 
-    if( brj_taken_Dhl || brj_taken_X0hl ) begin
-      bubble_Dhl <= bubble_next_Fhl;
-    end    
+    // if( brj_taken_Dhl || brj_taken_X0hl ) begin
+    //   bubble_Dhl <= bubble_next_Fhl;
+    // end    
   end
 
   //----------------------------------------------------------------------
@@ -561,288 +579,23 @@ module riscv_CoreCtrl
 
   end
 
-  // Steering Logic
-
-  reg [31:0] irA_Dhl;
-  reg        rfA_wen_Dhl;
-  reg  [4:0] rfA_waddr_Dhl;
-  reg  [3:0] aluA_fn_Dhl;
-
-  reg [31:0] irB_Dhl;
-  reg        rfB_wen_Dhl;
-  reg  [4:0] rfB_waddr_Dhl;
-  reg  [3:0] aluB_fn_Dhl;
-
-  reg  [2:0] br_sel_Dhl;
-  reg        muldivreq_val_Dhl;
-  reg  [2:0] muldivreq_msg_fn_Dhl;
-  reg        muldiv_mux_sel_Dhl;
-  reg        execute_mux_sel_Dhl;
-  reg        is_load_Dhl;
-  reg        is_muldiv_Dhl;
-  reg        dmemreq_msg_rw_Dhl;
-  reg  [1:0] dmemreq_msg_len_Dhl;
-  reg        dmemreq_val_Dhl;
-  reg  [2:0] dmemresp_mux_sel_Dhl;
-  reg        memex_mux_sel_Dhl;
-  reg        csr_wen_Dhl;
-  reg [11:0] csr_addr_Dhl;
-
-  // For disassembly
-
-  assign instA_Dhl            = irA_Dhl;
-  assign instB_Dhl            = irB_Dhl;
-
-  // Logic to stall the second instruction if there is a hazard
-  // A RAW hazard exists if instruction 0 writes the register file
-  // and the write destination is the same as a source register being
-  // used for instruction 1.
-
-  wire stall_1_RAW_Dhl        = ( inst_val_Dhl && rf0_wen_Dhl )
-                             && ( 
-                                  ( ( rf0_waddr_Dhl == rs10_addr_Dhl ) && rs10_en_Dhl )
-                               || ( ( rf0_waddr_Dhl == rs11_addr_Dhl ) && rs11_en_Dhl )
-                                )
-                             && ( !squash_first_D_inst );
-
-  // A WAW hazard exists if both instructions write the same register.
-
-  wire stall_1_WAW_Dhl        = ( inst_val_Dhl && rf0_wen_Dhl && rf1_wen_Dhl )
-                             && ( rf0_waddr_Dhl == rf1_waddr_Dhl)
-                             && ( !squash_first_D_inst );
-
-  // A structural hazard exists if both instructions are not simple
-  // ALU instructions. Alternatively, both instructions are loads, stores,
-  // muldivs, jumps, branches, or CSRWs.
-
-  wire reqA_0_Dhl             = ( inst_val_Dhl && !squash_first_D_inst )
-                             && ( muldivreq0_val_Dhl
-                               || dmemreq0_val_Dhl
-                               || brj0_taken_Dhl
-                               || ( br0_sel_Dhl != br_none )
-                               || csr0_wen_Dhl
-                                );
-
-  wire reqA_1_Dhl             = ( inst_val_Dhl )
-                             && ( muldivreq1_val_Dhl
-                               || dmemreq1_val_Dhl
-                               || brj1_taken_Dhl
-                               || ( br1_sel_Dhl != br_none )
-                               || csr1_wen_Dhl
-                                );
-
-  wire stall_1_structural_Dhl = reqA_0_Dhl && reqA_1_Dhl;
-
-  // Aggregate hazards for steering instruction 1
-
-  wire stall_1_steer_Dhl = ( stall_1_RAW_Dhl || stall_1_WAW_Dhl || stall_1_structural_Dhl );
-  reg stall_1_no_spec;
-  always @(*) begin
-    if ( br0_sel_Dhl ) begin
-      stall_1_no_spec = !squash_first_D_inst && inst_val_Dhl;
-    end
-    else stall_1_no_spec = 1'b0;
-  end
-
-  // Signals to indicate when both instructions are issued, or if only
-  // instruction 0 was issued
-  reg squash_first_D_inst;
-  reg ir0_issued_Dhl = 1'b0;
-  reg ir1_issued_Dhl = 1'b0;
-
-  // Steering signal calculation
-  // A value of 0 indicates instruction 0 being steered to A
-  // A value of 1 indicates instruction 1 being steered to A
-  reg steer_signal;
-  assign steering_mux_sel_Dhl = steer_signal;
-
-  always @(*) begin
-
-    // If the first instruction was already issued, steer the second
-    // into pipeline A.
-    if( squash_first_D_inst ) begin
-      steer_signal = 1'b1;
-    end
-
-    // If the second instruction requires A, and the first does not,
-    // steer the second to A.
-    else if ( !reqA_0_Dhl && reqA_1_Dhl && !stall_1_Dhl ) begin
-      steer_signal = 1'b1;
-    end
-
-    // Steer the first instruction to A in all other cases
-    else begin
-      steer_signal = 1'b0;
-    end
-  end
-
-  // Steer operand and bypass mux select signals
-  assign opA0_byp_mux_sel_Dhl
-    = ( steering_mux_sel_Dhl == 1'b0 ) ? op00_byp_mux_sel_Dhl
-    : ( steering_mux_sel_Dhl == 1'b1 ) ? op10_byp_mux_sel_Dhl
-    :                                    4'bx;
-  assign opA1_byp_mux_sel_Dhl
-    = ( steering_mux_sel_Dhl == 1'b0 ) ? op01_byp_mux_sel_Dhl
-    : ( steering_mux_sel_Dhl == 1'b1 ) ? op11_byp_mux_sel_Dhl
-    :                                    4'bx;
-  assign opA0_mux_sel_Dhl
-    = ( steering_mux_sel_Dhl == 1'b0 ) ? op00_mux_sel_Dhl
-    : ( steering_mux_sel_Dhl == 1'b1 ) ? op10_mux_sel_Dhl
-    :                                    2'bx;
-  assign opA1_mux_sel_Dhl
-    = ( steering_mux_sel_Dhl == 1'b0 ) ? op01_mux_sel_Dhl
-    : ( steering_mux_sel_Dhl == 1'b1 ) ? op11_mux_sel_Dhl
-    :                                    2'bx;
-  assign opB0_byp_mux_sel_Dhl
-    = ( steering_mux_sel_Dhl == 1'b0 ) ? op10_byp_mux_sel_Dhl
-    : ( steering_mux_sel_Dhl == 1'b1 ) ? op00_byp_mux_sel_Dhl
-    :                                    4'bx;
-  assign opB1_byp_mux_sel_Dhl
-    = ( steering_mux_sel_Dhl == 1'b0 ) ? op11_byp_mux_sel_Dhl
-    : ( steering_mux_sel_Dhl == 1'b1 ) ? op01_byp_mux_sel_Dhl
-    :                                    4'bx;
-  assign opB0_mux_sel_Dhl
-    = ( steering_mux_sel_Dhl == 1'b0 ) ? op10_mux_sel_Dhl
-    : ( steering_mux_sel_Dhl == 1'b1 ) ? op00_mux_sel_Dhl
-    :                                    2'bx;
-  assign opB1_mux_sel_Dhl
-    = ( steering_mux_sel_Dhl == 1'b0 ) ? op11_mux_sel_Dhl
-    : ( steering_mux_sel_Dhl == 1'b1 ) ? op01_mux_sel_Dhl
-    :                                    2'bx;     
-
-  always @(*) begin
-    if ( steering_mux_sel_Dhl == 1'b0 ) begin
-
-      // Issue the first instruction (ir0) to A
-      irA_Dhl              = ir0_Dhl;
-      rfA_wen_Dhl          = rf0_wen_Dhl;
-      rfA_waddr_Dhl        = rf0_waddr_Dhl;
-      aluA_fn_Dhl          = alu0_fn_Dhl;
-
-      br_sel_Dhl           = br0_sel_Dhl;
-      muldivreq_val_Dhl    = muldivreq0_val_Dhl;
-      muldivreq_msg_fn_Dhl = muldivreq0_msg_fn_Dhl;
-      muldiv_mux_sel_Dhl   = muldiv0_mux_sel_Dhl;
-      execute_mux_sel_Dhl  = execute0_mux_sel_Dhl;
-      is_load_Dhl          = is_load0_Dhl;
-      is_muldiv_Dhl        = muldivreq0_val_Dhl;
-      dmemreq_msg_rw_Dhl   = dmemreq0_msg_rw_Dhl;
-      dmemreq_msg_len_Dhl  = dmemreq0_msg_len_Dhl;
-      dmemreq_val_Dhl      = dmemreq0_val_Dhl;
-      dmemresp_mux_sel_Dhl = dmemresp0_mux_sel_Dhl;
-      memex_mux_sel_Dhl    = memex0_mux_sel_Dhl;
-      csr_wen_Dhl          = csr0_wen_Dhl;
-      csr_addr_Dhl         = csr0_addr_Dhl;
-
-      if( !stall_0_Dhl ) begin
-        ir0_issued_Dhl     = 1'b1;
-      end
-      else begin
-        ir0_issued_Dhl     = 1'b0;
-      end
-
-      // Issue ir1 to B if ir1, ir0, and X0 are not stalled and if
-      // ir0 is not a jump instruction
-      //----------------------------------------------------------------------
-      // ALSO IF ir0 IS NOT A BRANCH ----> DISALLOWING SPECULATION
-      //----------------------------------------------------------------------
-      if( !stall_1_Dhl && !stall_0_Dhl && !brj_taken_Dhl ) begin
-        irB_Dhl              = ir1_Dhl;
-        rfB_wen_Dhl          = rf1_wen_Dhl;
-        rfB_waddr_Dhl        = rf1_waddr_Dhl;
-        aluB_fn_Dhl          = alu1_fn_Dhl;
-
-        ir1_issued_Dhl       = 1'b1;
-      end
-
-      // Send an invalid instruction down B if ir1 is stalled
-      // Set ir1_issued to 0 to indicate that only ir0 has been issued
-      else begin
-        irB_Dhl              = 32'b0;
-        rfB_wen_Dhl          = 1'b0;
-
-        ir1_issued_Dhl       = 1'b0;        
-      end
-    end
-
-    else if ( steering_mux_sel_Dhl == 1'b1 ) begin
-
-      // Issue the second instruction (ir1) to A
-      irA_Dhl              = ir1_Dhl;
-      rfA_wen_Dhl          = rf1_wen_Dhl;
-      rfA_waddr_Dhl        = rf1_waddr_Dhl;
-      aluA_fn_Dhl          = alu1_fn_Dhl;
-
-      br_sel_Dhl           = br1_sel_Dhl;
-      aluA_fn_Dhl          = alu1_fn_Dhl;
-      muldivreq_val_Dhl    = muldivreq1_val_Dhl;
-      muldivreq_msg_fn_Dhl = muldivreq1_msg_fn_Dhl;
-      muldiv_mux_sel_Dhl   = muldiv1_mux_sel_Dhl;
-      execute_mux_sel_Dhl  = execute1_mux_sel_Dhl;
-      is_load_Dhl          = is_load1_Dhl;
-      is_muldiv_Dhl        = muldivreq1_val_Dhl;
-      dmemreq_msg_rw_Dhl   = dmemreq1_msg_rw_Dhl;
-      dmemreq_msg_len_Dhl  = dmemreq1_msg_len_Dhl;
-      dmemreq_val_Dhl      = dmemreq1_val_Dhl;
-      dmemresp_mux_sel_Dhl = dmemresp1_mux_sel_Dhl;
-      memex_mux_sel_Dhl    = memex1_mux_sel_Dhl;
-      csr_wen_Dhl          = csr1_wen_Dhl;
-      csr_addr_Dhl         = csr1_addr_Dhl;
-
-      // If i1 and X0 are not stalled, both instructions will issued,
-      // set ir0_issued_only to 0, and ir1_issued to 1
-      if( !stall_1_Dhl ) begin
-        ir1_issued_Dhl       = 1'b1;        
-      end
-      else begin
-        ir1_issued_Dhl       = 1'b0;
-      end
-
-      // If ir0 has not been issued, send it to path B
-      if( !squash_first_D_inst ) begin
-        irB_Dhl              = ir0_Dhl;
-        rfB_wen_Dhl          = rf0_wen_Dhl;
-        rfB_waddr_Dhl        = rf0_waddr_Dhl;
-        aluB_fn_Dhl          = alu0_fn_Dhl;
-
-        ir0_issued_Dhl       = 1'b1;    
-      end
-
-      // Otherwise send an invalid instruction down path B
-      else begin
-        irB_Dhl              = 32'b0;
-        rfB_wen_Dhl          = 1'b0;
-
-        ir0_issued_Dhl       = 1'b0;
-      end
-    end
-
-    // Do not issue if X0 is stalled or instructions are invalid
-    if ( !inst_val_Dhl || stall_X0hl ) begin
-      ir0_issued_Dhl         = 1'b0;
-      ir1_issued_Dhl         = 1'b0;
-    end
-  end
+  //----------------------------------------------------------------------
+  // Instruction Decode
+  //----------------------------------------------------------------------
 
   // Jump and Branch Controls
 
-  wire       brj0_taken_Dhl = ( inst_val_Dhl && cs0[`RISCV_INST_MSG_J_EN] );
+  wire j0_en_Dhl = cs0[`RISCV_INST_MSG_J_EN];
+  wire j1_en_Dhl = cs1[`RISCV_INST_MSG_J_EN];
+
   wire [2:0] br0_sel_Dhl    = cs0[`RISCV_INST_MSG_BR_SEL];
-
-  wire       brj1_taken_Dhl = ( inst_val_Dhl && cs1[`RISCV_INST_MSG_J_EN] );
   wire [2:0] br1_sel_Dhl    = cs1[`RISCV_INST_MSG_BR_SEL];
-
-  wire       brj_taken_Dhl  = ( !steering_mux_sel_Dhl ) ? brj0_taken_Dhl && !stall_X0hl
-                            : (  steering_mux_sel_Dhl ) ? brj1_taken_Dhl && !stall_X0hl
-                            :                           1'bx;
 
   // PC Mux Select
 
   wire [1:0] pc0_mux_sel_Dhl = cs0[`RISCV_INST_MSG_PC_SEL];
   wire [1:0] pc1_mux_sel_Dhl = cs1[`RISCV_INST_MSG_PC_SEL];
-  wire [1:0] pc_mux_sel_Dhl  = ( !steering_mux_sel_Dhl ) ? pc0_mux_sel_Dhl
-                             : (  steering_mux_sel_Dhl ) ? pc1_mux_sel_Dhl
-                             :                           2'bx;
+
   // Source registers
 
   wire [4:0] rs00_addr_Dhl  = inst0_rs1_Dhl;
@@ -890,9 +643,6 @@ module riscv_CoreCtrl
   wire execute0_mux_sel_Dhl = cs0[`RISCV_INST_MSG_MULDIV_EN];
   wire execute1_mux_sel_Dhl = cs1[`RISCV_INST_MSG_MULDIV_EN];
 
-  wire       is_load0_Dhl         = ( cs0[`RISCV_INST_MSG_MEM_REQ] == ld );
-  wire       is_load1_Dhl         = ( cs1[`RISCV_INST_MSG_MEM_REQ] == ld );
-
   wire       dmemreq0_msg_rw_Dhl  = ( cs0[`RISCV_INST_MSG_MEM_REQ] == st );
   wire [1:0] dmemreq0_msg_len_Dhl = cs0[`RISCV_INST_MSG_MEM_LEN];
   wire       dmemreq0_val_Dhl     = ( cs0[`RISCV_INST_MSG_MEM_REQ] != nr );
@@ -930,45 +680,512 @@ module riscv_CoreCtrl
   wire [11:0] csr1_addr_Dhl  = ir1_Dhl[31:20];
 
   //----------------------------------------------------------------------
+  // Decode Stage: Stall Logic
+  //----------------------------------------------------------------------
+
+  // Squash instruction in D stage if branch taken for a valid
+  // instruction or if there was an exception in X stage
+
+  wire squash_Dhl
+    = ( inst_val_Ihl && brj_taken_Ihl )
+   || ( inst_val_X0hl && brj_taken_X0hl );
+
+  // Stall in D if I is stalled
+
+  assign stall_Dhl = stall_Ihl;
+
+  // Next bubble bit
+
+  wire bubble_sel_Dhl  = ( squash_Dhl || stall_Dhl );
+  wire bubble_next_Dhl = ( !bubble_sel_Dhl ) ? bubble_Dhl
+                       : ( bubble_sel_Dhl )  ? 1'b1
+                       :                       1'bx;
+
+  //----------------------------------------------------------------------
+  // I <- D
+  //----------------------------------------------------------------------
+
+  reg         bubble_Ihl;
+
+  reg [31:0]  ir0_Ihl;
+  reg         rf0_wen_Ihl;
+  reg  [4:0]  rf0_waddr_Ihl;
+  reg  [3:0]  alu0_fn_Ihl;
+  reg  [2:0]  br0_sel_Ihl;
+  reg         j0_en_Ihl;
+  reg  [1:0]  pc0_mux_sel_Ihl;
+  reg         muldivreq0_val_Ihl;
+  reg  [2:0]  muldivreq0_msg_fn_Ihl;
+  reg         muldiv0_mux_sel_Ihl;
+  reg         execute0_mux_sel_Ihl;
+  reg         dmemreq0_msg_rw_Ihl;
+  reg  [1:0]  dmemreq0_msg_len_Ihl;
+  reg         dmemreq0_val_Ihl;
+  reg  [2:0]  dmemresp0_mux_sel_Ihl;
+  reg         memex0_mux_sel_Ihl;
+  reg         csr0_wen_Ihl;
+  reg [11:0]  csr0_addr_Ihl;
+
+  reg [31:0]  ir1_Ihl;
+  reg         rf1_wen_Ihl;
+  reg  [4:0]  rf1_waddr_Ihl;
+  reg  [3:0]  alu1_fn_Ihl;
+  reg  [2:0]  br1_sel_Ihl;
+  reg         j1_en_Ihl;
+  reg  [1:0]  pc1_mux_sel_Ihl;
+  reg         muldivreq1_val_Ihl;
+  reg  [2:0]  muldivreq1_msg_fn_Ihl;
+  reg         muldiv1_mux_sel_Ihl;
+  reg         execute1_mux_sel_Ihl;
+  reg         dmemreq1_msg_rw_Ihl;
+  reg  [1:0]  dmemreq1_msg_len_Ihl;
+  reg         dmemreq1_val_Ihl;
+  reg  [2:0]  dmemresp1_mux_sel_Ihl;
+  reg         memex1_mux_sel_Ihl;
+  reg         csr1_wen_Ihl;
+  reg [11:0]  csr1_addr_Ihl;
+
+  reg  [4:0]  rs00_addr_Ihl;
+  reg  [4:0]  rs01_addr_Ihl;
+  reg  [4:0]  rs10_addr_Ihl;
+  reg  [4:0]  rs11_addr_Ihl;
+  reg         rs00_en_Ihl;
+  reg         rs01_en_Ihl;
+  reg         rs10_en_Ihl;
+  reg         rs11_en_Ihl;
+
+  reg  [1:0]  op00_mux_sel_Ihl;
+  reg  [2:0]  op01_mux_sel_Ihl;
+  reg  [1:0]  op10_mux_sel_Ihl;
+  reg  [2:0]  op11_mux_sel_Ihl;
+
+  always @ (posedge clk) begin
+    if( reset ) begin
+      bubble_Ihl <= 1'b1;
+    end
+    else if( !stall_Ihl ) begin
+      ir0_Ihl               <= ir0_Dhl;
+      rf0_wen_Ihl           <= rf0_wen_Dhl;
+      rf0_waddr_Ihl         <= rf0_waddr_Dhl;
+      alu0_fn_Ihl           <= alu0_fn_Dhl;
+      br0_sel_Ihl           <= br0_sel_Dhl;
+      j0_en_Ihl             <= j0_en_Dhl;
+      pc0_mux_sel_Ihl       <= pc0_mux_sel_Dhl;
+      muldivreq0_val_Ihl    <= muldivreq0_val_Dhl;
+      muldivreq0_msg_fn_Ihl <= muldivreq0_msg_fn_Dhl;
+      muldiv0_mux_sel_Ihl   <= muldiv0_mux_sel_Dhl;
+      execute0_mux_sel_Ihl  <= execute0_mux_sel_Dhl;
+      dmemreq0_msg_rw_Ihl   <= dmemreq0_msg_rw_Dhl;
+      dmemreq0_msg_len_Ihl  <= dmemreq0_msg_len_Dhl;
+      dmemreq0_val_Ihl      <= dmemreq0_val_Dhl;
+      dmemresp0_mux_sel_Ihl <= dmemresp0_mux_sel_Dhl;
+      memex0_mux_sel_Ihl    <= memex0_mux_sel_Dhl;
+      csr0_wen_Ihl          <= csr0_wen_Dhl;
+      csr0_addr_Ihl         <= csr0_addr_Dhl;
+
+      ir1_Ihl               <= ir1_Dhl;
+      rf1_wen_Ihl           <= rf1_wen_Dhl;
+      rf1_waddr_Ihl         <= rf1_waddr_Dhl;
+      alu1_fn_Ihl           <= alu1_fn_Dhl;
+      br1_sel_Ihl           <= br1_sel_Dhl;
+      j1_en_Ihl             <= j1_en_Dhl;
+      pc1_mux_sel_Ihl       <= pc1_mux_sel_Dhl;
+      muldivreq1_val_Ihl    <= muldivreq1_val_Dhl;
+      muldivreq1_msg_fn_Ihl <= muldivreq1_msg_fn_Dhl;
+      muldiv1_mux_sel_Ihl   <= muldiv1_mux_sel_Dhl;
+      execute1_mux_sel_Ihl  <= execute1_mux_sel_Dhl;
+      dmemreq1_msg_rw_Ihl   <= dmemreq1_msg_rw_Dhl;
+      dmemreq1_msg_len_Ihl  <= dmemreq1_msg_len_Dhl;
+      dmemreq1_val_Ihl      <= dmemreq1_val_Dhl;
+      dmemresp1_mux_sel_Ihl <= dmemresp1_mux_sel_Dhl;
+      memex1_mux_sel_Ihl    <= memex1_mux_sel_Dhl;
+      csr1_wen_Ihl          <= csr1_wen_Dhl;
+      csr1_addr_Ihl         <= csr1_addr_Dhl;
+
+      rs00_addr_Ihl         <= rs00_addr_Dhl;
+      rs01_addr_Ihl         <= rs01_addr_Dhl;
+      rs10_addr_Ihl         <= rs10_addr_Dhl;
+      rs11_addr_Ihl         <= rs11_addr_Dhl;
+      rs00_en_Ihl           <= rs00_en_Dhl;
+      rs01_en_Ihl           <= rs01_en_Dhl;
+      rs10_en_Ihl           <= rs10_en_Dhl;
+      rs11_en_Ihl           <= rs11_en_Dhl;
+
+      op00_mux_sel_Ihl      <= op00_mux_sel_Dhl;
+      op01_mux_sel_Ihl      <= op01_mux_sel_Dhl;
+      op10_mux_sel_Ihl      <= op10_mux_sel_Dhl;
+      op11_mux_sel_Ihl      <= op11_mux_sel_Dhl;
+
+      bubble_Ihl <= bubble_next_Dhl && !squash_first_I_inst_Ihl;
+    end
+
+    // Always send a bubble to the decode stage if a branch or jump is taken
+    if( brj_taken_Ihl || brj_taken_X0hl ) begin
+      bubble_Ihl <= bubble_next_Dhl;
+    end  
+  end
+
+  // Is the current stage valid?
+
+  wire inst_val_Ihl = ( !bubble_Ihl && !squash_Ihl );
+
+  // PC Mux Select
+
+  wire [1:0] pc_mux_sel_Ihl  = ( !steering_mux_sel_Ihl ) ? pc0_mux_sel_Ihl
+                             : (  steering_mux_sel_Ihl ) ? pc1_mux_sel_Ihl
+                             :                           2'bx;
+
+  //----------------------------------------------------------------------
+  // Issue Stage: Jump and Branch Controls
+  //----------------------------------------------------------------------
+
+  wire       brj0_taken_Ihl = ( inst_val_Ihl && j0_en_Ihl );
+  wire       brj1_taken_Ihl = ( inst_val_Ihl && j1_en_Ihl );
+
+  wire       brj_taken_Ihl  = ( !steering_mux_sel_Ihl ) ? brj0_taken_Ihl && !stall_X0hl
+                            : (  steering_mux_sel_Ihl ) ? brj1_taken_Ihl && !stall_X0hl
+                            :                           1'bx;
+
+  //----------------------------------------------------------------------
+  // Issue Stage: Steering Logic
+  //----------------------------------------------------------------------
+
+  reg [31:0] irA_Ihl;
+  reg        rfA_wen_Ihl;
+  reg  [4:0] rfA_waddr_Ihl;
+  reg  [3:0] aluA_fn_Ihl;
+  reg  [4:0] rob_fill_slot_A_Ihl;
+  reg        rob_fill_val_A_Ihl;
+
+  reg [31:0] irB_Ihl;
+  reg        rfB_wen_Ihl;
+  reg  [4:0] rfB_waddr_Ihl;
+  reg  [3:0] aluB_fn_Ihl;
+  reg  [4:0] rob_fill_slot_B_Ihl;
+  reg        rob_fill_val_B_Ihl;
+
+  reg  [2:0] br_sel_Ihl;
+  reg        muldivreq_val_Ihl;
+  reg  [2:0] muldivreq_msg_fn_Ihl;
+  reg        muldiv_mux_sel_Ihl;
+  reg        execute_mux_sel_Ihl;
+  reg        dmemreq_msg_rw_Ihl;
+  reg  [1:0] dmemreq_msg_len_Ihl;
+  reg        dmemreq_val_Ihl;
+  reg  [2:0] dmemresp_mux_sel_Ihl;
+  reg        memex_mux_sel_Ihl;
+  reg        csr_wen_Ihl;
+  reg [11:0] csr_addr_Ihl;
+
+  // For disassembly
+
+  assign instA_Ihl            = irA_Ihl;
+  assign instB_Ihl            = irB_Ihl;
+
+  // Logic to stall the second instruction if there is a hazard
+  // A RAW hazard exists if instruction 0 writes the register file
+  // and the write destination is the same as a source register being
+  // used for instruction 1.
+
+  wire stall_1_RAW_Ihl        = ( inst_val_Ihl && rf0_wen_Ihl )
+                             && ( 
+                                  ( ( rf0_waddr_Ihl == rs10_addr_Ihl ) && rs10_en_Ihl )
+                               || ( ( rf0_waddr_Ihl == rs11_addr_Ihl ) && rs11_en_Ihl )
+                                )
+                             && ( !squash_first_I_inst_Ihl );
+
+  // A WAW hazard exists if both instructions write the same register.
+
+  wire stall_1_WAW_Ihl        = ( inst_val_Ihl && rf0_wen_Ihl && rf1_wen_Ihl )
+                             && ( rf0_waddr_Ihl == rf1_waddr_Ihl)
+                             && ( !squash_first_I_inst_Ihl );
+
+  // A structural hazard exists if both instructions are not simple
+  // ALU instructions. Alternatively, both instructions are loads, stores,
+  // muldivs, jumps, branches, or CSRWs.
+
+  wire reqA_0_Ihl             = ( inst_val_Ihl && !squash_first_I_inst_Ihl )
+                             && ( muldivreq0_val_Ihl
+                               || dmemreq0_val_Ihl
+                               || brj0_taken_Ihl
+                               || ( br0_sel_Ihl != br_none )
+                               || csr0_wen_Ihl
+                                );
+
+  wire reqA_1_Ihl             = ( inst_val_Ihl )
+                             && ( muldivreq1_val_Ihl
+                               || dmemreq1_val_Ihl
+                               || brj1_taken_Ihl
+                               || ( br1_sel_Ihl != br_none )
+                               || csr1_wen_Ihl
+                                );
+
+  wire stall_1_structural_Ihl = reqA_0_Ihl && reqA_1_Ihl;
+
+  // Aggregate hazards for steering instruction 1
+
+  wire stall_1_steer_Ihl = ( stall_1_RAW_Ihl || stall_1_WAW_Ihl || stall_1_structural_Ihl );
+  reg stall_1_no_spec_Ihl;
+  always @(*) begin
+    if ( br0_sel_Ihl ) begin
+      stall_1_no_spec_Ihl = !squash_first_I_inst_Ihl && inst_val_Ihl;
+    end
+    else stall_1_no_spec_Ihl = 1'b0;
+  end
+
+  // Signals to indicate when both instructions are issued, or if only
+  // instruction 0 was issued
+  reg squash_first_I_inst_Ihl;
+  reg ir0_issued_Ihl = 1'b0;
+  reg ir1_issued_Ihl = 1'b0;
+
+  // Steering signal calculation
+  // A value of 0 indicates instruction 0 being steered to A
+  // A value of 1 indicates instruction 1 being steered to A
+  reg steer_signal_Ihl;
+  assign steering_mux_sel_Ihl = steer_signal_Ihl;
+
+  always @(*) begin
+
+    // If the first instruction was already issued, steer the second
+    // into pipeline A.
+    if( squash_first_I_inst_Ihl ) begin
+      steer_signal_Ihl = 1'b1;
+    end
+
+    // If the second instruction requires A, and the first does not,
+    // steer the second to A.
+    else if ( !reqA_0_Ihl && reqA_1_Ihl && !stall_1_Ihl ) begin
+      steer_signal_Ihl = 1'b1;
+    end
+
+    // Steer the first instruction to A in all other cases
+    else begin
+      steer_signal_Ihl = 1'b0;
+    end
+  end
+
+  // Steer operand and bypass mux select signals
+  assign opA0_byp_mux_sel_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? op00_byp_mux_sel_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? op10_byp_mux_sel_Ihl
+    :                                    4'bx;
+  assign opA1_byp_mux_sel_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? op01_byp_mux_sel_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? op11_byp_mux_sel_Ihl
+    :                                    4'bx;
+  assign opA0_mux_sel_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? op00_mux_sel_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? op10_mux_sel_Ihl
+    :                                    2'bx;
+  assign opA1_mux_sel_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? op01_mux_sel_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? op11_mux_sel_Ihl
+    :                                    2'bx;
+  assign opB0_byp_mux_sel_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? op10_byp_mux_sel_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? op00_byp_mux_sel_Ihl
+    :                                    4'bx;
+  assign opB1_byp_mux_sel_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? op11_byp_mux_sel_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? op01_byp_mux_sel_Ihl
+    :                                    4'bx;
+  assign opB0_mux_sel_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? op10_mux_sel_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? op00_mux_sel_Ihl
+    :                                    2'bx;
+  assign opB1_mux_sel_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? op11_mux_sel_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? op01_mux_sel_Ihl
+    :                                    2'bx;
+  assign opA0_byp_rob_slot_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? op00_byp_rob_slot_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? op10_byp_rob_slot_Ihl
+    :                                    5'bx;
+  assign opA1_byp_rob_slot_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? op01_byp_rob_slot_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? op11_byp_rob_slot_Ihl
+    :                                    5'bx;
+  assign opB0_byp_rob_slot_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? op10_byp_rob_slot_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? op00_byp_rob_slot_Ihl
+    :                                    5'bx;
+  assign opB1_byp_rob_slot_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? op11_byp_rob_slot_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? op01_byp_rob_slot_Ihl
+    :                                    5'bx;
+
+  always @(*) begin
+    if ( steering_mux_sel_Ihl == 1'b0 ) begin
+
+      // Issue the first instruction (ir0) to A
+      irA_Ihl              = ir0_Ihl;
+      rfA_wen_Ihl          = rf0_wen_Ihl;
+      rfA_waddr_Ihl        = rf0_waddr_Ihl;
+      aluA_fn_Ihl          = alu0_fn_Ihl;
+      rob_fill_slot_A_Ihl  = rob_fill_slot_0_Ihl;
+
+      br_sel_Ihl           = br0_sel_Ihl;
+      muldivreq_val_Ihl    = muldivreq0_val_Ihl;
+      muldivreq_msg_fn_Ihl = muldivreq0_msg_fn_Ihl;
+      muldiv_mux_sel_Ihl   = muldiv0_mux_sel_Ihl;
+      execute_mux_sel_Ihl  = execute0_mux_sel_Ihl;
+      dmemreq_msg_rw_Ihl   = dmemreq0_msg_rw_Ihl;
+      dmemreq_msg_len_Ihl  = dmemreq0_msg_len_Ihl;
+      dmemreq_val_Ihl      = dmemreq0_val_Ihl;
+      dmemresp_mux_sel_Ihl = dmemresp0_mux_sel_Ihl;
+      memex_mux_sel_Ihl    = memex0_mux_sel_Ihl;
+      csr_wen_Ihl          = csr0_wen_Ihl;
+      csr_addr_Ihl         = csr0_addr_Ihl;
+
+      if( !stall_0_Ihl ) begin
+        ir0_issued_Ihl     = 1'b1;
+        rob_fill_val_A_Ihl = 1'b1;
+      end
+      else begin
+        ir0_issued_Ihl     = 1'b0;
+        rob_fill_val_A_Ihl = 1'b0;
+      end
+
+      // Issue ir1 to B if ir1, ir0, and X0 are not stalled and if
+      // ir0 is not a jump instruction
+      //----------------------------------------------------------------------
+      // ALSO IF ir0 IS NOT A BRANCH ----> DISALLOWING SPECULATION
+      //----------------------------------------------------------------------
+      if( !stall_1_Ihl && !stall_0_Ihl && !brj_taken_Ihl ) begin
+        irB_Ihl              = ir1_Ihl;
+        rfB_wen_Ihl          = rf1_wen_Ihl;
+        rfB_waddr_Ihl        = rf1_waddr_Ihl;
+        aluB_fn_Ihl          = alu1_fn_Ihl;
+        rob_fill_slot_B_Ihl  = rob_fill_slot_1_Ihl;
+        rob_fill_val_B_Ihl   = 1'b1;
+
+        ir1_issued_Ihl       = 1'b1;
+      end
+
+      // Send an invalid instruction down B if ir1 is stalled
+      // Set ir1_issued to 0 to indicate that only ir0 has been issued
+      else begin
+        irB_Ihl              = 32'b0;
+        rfB_wen_Ihl          = 1'b0;
+
+        ir1_issued_Ihl       = 1'b0;
+        rob_fill_val_B_Ihl   = 1'b0;
+      end
+    end
+
+    else if ( steering_mux_sel_Ihl == 1'b1 ) begin
+
+      // Issue the second instruction (ir1) to A
+      irA_Ihl              = ir1_Ihl;
+      rfA_wen_Ihl          = rf1_wen_Ihl;
+      rfA_waddr_Ihl        = rf1_waddr_Ihl;
+      aluA_fn_Ihl          = alu1_fn_Ihl;
+      rob_fill_slot_A_Ihl  = rob_fill_slot_1_Ihl;
+
+      br_sel_Ihl           = br1_sel_Ihl;
+      aluA_fn_Ihl          = alu1_fn_Ihl;
+      muldivreq_val_Ihl    = muldivreq1_val_Ihl;
+      muldivreq_msg_fn_Ihl = muldivreq1_msg_fn_Ihl;
+      muldiv_mux_sel_Ihl   = muldiv1_mux_sel_Ihl;
+      execute_mux_sel_Ihl  = execute1_mux_sel_Ihl;
+      dmemreq_msg_rw_Ihl   = dmemreq1_msg_rw_Ihl;
+      dmemreq_msg_len_Ihl  = dmemreq1_msg_len_Ihl;
+      dmemreq_val_Ihl      = dmemreq1_val_Ihl;
+      dmemresp_mux_sel_Ihl = dmemresp1_mux_sel_Ihl;
+      memex_mux_sel_Ihl    = memex1_mux_sel_Ihl;
+      csr_wen_Ihl          = csr1_wen_Ihl;
+      csr_addr_Ihl         = csr1_addr_Ihl;
+
+      // If i1 and X0 are not stalled, both instructions will issued,
+      // set ir0_issued_only to 0, and ir1_issued to 1
+      if( !stall_1_Ihl ) begin
+        ir1_issued_Ihl       = 1'b1;
+        rob_fill_val_A_Ihl   = 1'b1;
+      end
+      else begin
+        ir1_issued_Ihl       = 1'b0;
+        rob_fill_val_A_Ihl   = 1'b0;
+      end
+
+      // If ir0 has not been issued, send it to path B
+      if( !squash_first_I_inst_Ihl ) begin
+        irB_Ihl              = ir0_Ihl;
+        rfB_wen_Ihl          = rf0_wen_Ihl;
+        rfB_waddr_Ihl        = rf0_waddr_Ihl;
+        aluB_fn_Ihl          = alu0_fn_Ihl;
+        rob_fill_slot_B_Ihl  = rob_fill_slot_0_Ihl;
+
+        ir0_issued_Ihl       = 1'b1;
+        rob_fill_val_B_Ihl   = 1'b1;
+      end
+
+      // Otherwise send an invalid instruction down path B
+      else begin
+        irB_Ihl              = 32'b0;
+        rfB_wen_Ihl          = 1'b0;
+
+        ir0_issued_Ihl       = 1'b0;
+        rob_fill_val_B_Ihl   = 1'b0;
+      end
+    end
+
+    // Do not issue if X0 is stalled or instructions are invalid
+    if ( !inst_val_Ihl || stall_X0hl ) begin
+      ir0_issued_Ihl         = 1'b0;
+      ir1_issued_Ihl         = 1'b0;
+      rob_fill_val_A_Ihl     = 1'b0;
+      rob_fill_val_B_Ihl     = 1'b0;
+    end
+  end
+
+  //----------------------------------------------------------------------
   // Scoreboard Logic
   //----------------------------------------------------------------------
 
-  wire [1:0] func_ir0 = {muldivreq0_val_Dhl, dmemreq0_val_Dhl};
-  wire [1:0] func_ir1 = {muldivreq1_val_Dhl, dmemreq1_val_Dhl};
+  wire [1:0] func_ir0_Ihl = {muldivreq0_val_Ihl, dmemreq0_val_Ihl};
+  wire [1:0] func_ir1_Ihl = {muldivreq1_val_Ihl, dmemreq1_val_Ihl};
 
-  wire stall_0_scoreboard;
-  wire stall_1_scoreboard;
+  wire stall_0_sb_Ihl;
+  wire stall_1_sb_Ihl;
 
-  wire [3:0] op00_byp_mux_sel_Dhl;
-  wire [3:0] op01_byp_mux_sel_Dhl;
-  wire [3:0] op10_byp_mux_sel_Dhl;
-  wire [3:0] op11_byp_mux_sel_Dhl;
+  wire [3:0] op00_byp_mux_sel_Ihl;
+  wire [3:0] op01_byp_mux_sel_Ihl;
+  wire [3:0] op10_byp_mux_sel_Ihl;
+  wire [3:0] op11_byp_mux_sel_Ihl;
+
+  wire [4:0] op00_byp_rob_slot_Ihl;
+  wire [4:0] op01_byp_rob_slot_Ihl;
+  wire [4:0] op10_byp_rob_slot_Ihl;
+  wire [4:0] op11_byp_rob_slot_Ihl;
 
   riscv_CoreScoreboard scoreboard
   (
     .clk                (clk),
     .reset              (reset),
 
-    .src00              (rs00_addr_Dhl),
-    .src00_en           (rs00_en_Dhl),
-    .src01              (rs01_addr_Dhl),
-    .src01_en           (rs01_en_Dhl),
-    .dst0               (rf0_waddr_Dhl),
-    .dst0_en            (rf0_wen_Dhl),
-    .func_ir0           (func_ir0),
-    .ir0_issued         (ir0_issued_Dhl),
+    .src00              (rs00_addr_Ihl),
+    .src00_en           (rs00_en_Ihl),
+    .src01              (rs01_addr_Ihl),
+    .src01_en           (rs01_en_Ihl),
+    .dst0               (rf0_waddr_Ihl),
+    .dst0_en            (rf0_wen_Ihl),
+    .dst_slot_0         (rob_fill_slot_0_Ihl),
+    .func_ir0           (func_ir0_Ihl),
+    .ir0_issued         (ir0_issued_Ihl),
 
-    .src10              (rs10_addr_Dhl),
-    .src10_en           (rs10_en_Dhl),
-    .src11              (rs11_addr_Dhl),
-    .src11_en           (rs11_en_Dhl),
-    .dst1               (rf1_waddr_Dhl),
-    .dst1_en            (rf1_wen_Dhl),
-    .func_ir1           (func_ir1),
-    .ir1_issued         (ir1_issued_Dhl),
+    .src10              (rs10_addr_Ihl),
+    .src10_en           (rs10_en_Ihl),
+    .src11              (rs11_addr_Ihl),
+    .src11_en           (rs11_en_Ihl),
+    .dst1               (rf1_waddr_Ihl),
+    .dst1_en            (rf1_wen_Ihl),
+    .dst_slot_1         (rob_fill_slot_1_Ihl),
+    .func_ir1           (func_ir1_Ihl),
+    .ir1_issued         (ir1_issued_Ihl),
 
-    .steer_signal       (steering_mux_sel_Dhl),
-    .inst_val_Dhl       (inst_val_Dhl),
+    .steer_signal       (steering_mux_sel_Ihl),
+    .inst_val_Ihl       (inst_val_Ihl),
 
     .stall_X0hl         (stall_X0hl),
     .stall_X1hl         (stall_X1hl),
@@ -976,13 +1193,63 @@ module riscv_CoreCtrl
     .stall_X3hl         (stall_X3hl),
     .stall_Whl          (stall_Whl),
 
-    .stall_ir0          (stall_0_scoreboard),
-    .stall_ir1          (stall_1_scoreboard),
+    .rob_commit_slot_1  (rob_commit_slot_1_Chl),
+    .rob_commit_wen_1   (rob_commit_wen_1_Chl),
+    .rob_commit_slot_2  (rob_commit_slot_2_Chl),
+    .rob_commit_wen_2   (rob_commit_wen_2_Chl),
 
-    .op00_byp_mux_sel   (op00_byp_mux_sel_Dhl),
-    .op01_byp_mux_sel   (op01_byp_mux_sel_Dhl),
-    .op10_byp_mux_sel   (op10_byp_mux_sel_Dhl),
-    .op11_byp_mux_sel   (op11_byp_mux_sel_Dhl)
+    .stall_ir0          (stall_0_sb_Ihl),
+    .stall_ir1          (stall_1_sb_Ihl),
+
+    .op00_byp_mux_sel   (op00_byp_mux_sel_Ihl),
+    .op01_byp_mux_sel   (op01_byp_mux_sel_Ihl),
+    .op10_byp_mux_sel   (op10_byp_mux_sel_Ihl),
+    .op11_byp_mux_sel   (op11_byp_mux_sel_Ihl),
+
+    .op00_byp_rob_slot  (op00_byp_rob_slot_Ihl),
+    .op01_byp_rob_slot  (op01_byp_rob_slot_Ihl),
+    .op10_byp_rob_slot  (op10_byp_rob_slot_Ihl),
+    .op11_byp_rob_slot  (op11_byp_rob_slot_Ihl)
+  );
+
+  //----------------------------------------------------------------------
+  // Reorder Buffer Logic
+  //----------------------------------------------------------------------
+
+  wire rob_req_rdy_Ihl;
+
+  wire [4:0]  rob_fill_slot_0_Ihl;
+  wire [4:0]  rob_fill_slot_1_Ihl;
+
+  wire rob_req_val_1_Ihl = ir0_issued_Ihl;
+  wire rob_req_val_2_Ihl = ir1_issued_Ihl;
+
+  riscv_CoreReorderBuffer rob
+  (
+    .clk                         (clk),
+    .reset                       (reset),
+
+    .rob_alloc_req_rdy           (rob_req_rdy_Ihl),
+
+    .rob_alloc_req_val_1         (rob_req_val_1_Ihl),
+    .rob_alloc_req_wen_1         (rf0_wen_Ihl),
+    .rob_alloc_req_preg_1        (rf0_waddr_Ihl),
+    .rob_alloc_resp_slot_1       (rob_fill_slot_0_Ihl),
+    .rob_fill_val_1              (rob_fill_val_A_Whl),
+    .rob_fill_slot_1             (rob_fill_slot_A_Whl),
+    .rob_commit_slot_1           (rob_commit_slot_1_Chl),
+    .rob_commit_wen_1            (rob_commit_wen_1_Chl),
+    .rob_commit_rf_waddr_1       (rob_commit_waddr_1_Chl),
+
+    .rob_alloc_req_val_2         (rob_req_val_2_Ihl),
+    .rob_alloc_req_preg_2        (rf1_waddr_Ihl),
+    .rob_alloc_req_wen_2         (rf1_wen_Ihl),
+    .rob_alloc_resp_slot_2       (rob_fill_slot_1_Ihl),
+    .rob_fill_val_2              (rob_fill_val_B_Whl),
+    .rob_fill_slot_2             (rob_fill_slot_B_Whl),
+    .rob_commit_slot_2           (rob_commit_slot_2_Chl),
+    .rob_commit_wen_2            (rob_commit_wen_2_Chl),
+    .rob_commit_rf_waddr_2       (rob_commit_waddr_2_Chl)
   );
 
   //----------------------------------------------------------------------
@@ -990,21 +1257,23 @@ module riscv_CoreCtrl
   //----------------------------------------------------------------------
   
   // Squash instruction in D if a valid branch in X is taken
-  wire squash_Dhl = ( inst_val_X0hl && brj_taken_X0hl );
+  wire squash_Ihl = ( inst_val_X0hl && brj_taken_X0hl );
 
   // Aggregate Stall Signal
-  wire stall_0_Dhl = stall_0_scoreboard && !squash_first_D_inst;
-  wire stall_1_Dhl = ( stall_1_scoreboard || stall_1_steer_Dhl  || stall_1_no_spec );
+  wire stall_0_Ihl = ( stall_0_sb_Ihl && !squash_first_I_inst_Ihl )
+                      || !rob_req_rdy_Ihl;
+  wire stall_1_Ihl = ( stall_1_sb_Ihl || stall_1_steer_Ihl  || stall_1_no_spec_Ihl )
+                      || !rob_req_rdy_Ihl;
 
-  wire stall_Dhl   = ( stall_X0hl )
-                      || ( ( stall_0_Dhl || stall_1_Dhl ) && !brj_taken_Dhl && !brj_taken_X0hl );
+  wire stall_Ihl   = ( stall_X0hl )
+                      || ( ( stall_0_Ihl || stall_1_Ihl ) && !brj_taken_Ihl && !brj_taken_X0hl );
 
   // Send a bubble to the next stage if either ir0 is valid and stalled,
   // or if ir0 is invalid and i1 is stalled
-  wire bubble_sel_Dhl  = ( squash_Dhl || stall_X0hl || stall_0_Dhl
-                      || ( stall_1_Dhl && squash_first_D_inst ) );
-  wire bubble_next_Dhl = ( !bubble_sel_Dhl ) ? bubble_Dhl
-                       : ( bubble_sel_Dhl )  ? 1'b1
+  wire bubble_sel_Ihl  = ( squash_Ihl || stall_X0hl || stall_0_Ihl
+                      || ( stall_1_Ihl && squash_first_I_inst_Ihl ) );
+  wire bubble_next_Ihl = ( !bubble_sel_Ihl ) ? bubble_Ihl
+                       : ( bubble_sel_Ihl )  ? 1'b1
                        :                       1'bx;
 
   //----------------------------------------------------------------------
@@ -1015,19 +1284,21 @@ module riscv_CoreCtrl
   reg  [3:0] aluA_fn_X0hl;
   reg        rfA_wen_X0hl;
   reg  [4:0] rfA_waddr_X0hl;
+  reg  [4:0] rob_fill_slot_A_X0hl;
+  reg        rob_fill_val_A_X0hl;
 
   reg [31:0] irB_X0hl;
   reg  [3:0] aluB_fn_X0hl;
   reg        rfB_wen_X0hl;
-  reg  [4:0] rfB_waddr_X0hl;  
+  reg  [4:0] rfB_waddr_X0hl;
+  reg  [4:0] rob_fill_slot_B_X0hl;
+  reg        rob_fill_val_B_X0hl;
 
   reg  [2:0] br_sel_X0hl;
   reg        muldivreq_val_X0hl;
   reg  [2:0] muldivreq_msg_fn_X0hl;
   reg        muldiv_mux_sel_X0hl;
   reg        execute_mux_sel_X0hl;
-  reg        is_load_X0hl;
-  reg        is_muldiv_X0hl;
   reg        memex_mux_sel_X0hl;
   reg        dmemreq_msg_rw_X0hl;
   reg  [1:0] dmemreq_msg_len_X0hl;
@@ -1042,48 +1313,50 @@ module riscv_CoreCtrl
 
   always @ ( posedge clk ) begin
     if ( reset ) begin
-      bubble_X0hl         <= 1'b1;
-      squash_first_D_inst <= 1'b0;
+      bubble_X0hl             <= 1'b1;
+      squash_first_I_inst_Ihl <= 1'b0;
     end
     else if( !stall_X0hl ) begin
-      irA_X0hl              <= irA_Dhl;
-      aluA_fn_X0hl          <= aluA_fn_Dhl;
-      rfA_wen_X0hl          <= rfA_wen_Dhl;
-      rfA_waddr_X0hl        <= rfA_waddr_Dhl;
+      irA_X0hl              <= irA_Ihl;
+      aluA_fn_X0hl          <= aluA_fn_Ihl;
+      rfA_wen_X0hl          <= rfA_wen_Ihl;
+      rfA_waddr_X0hl        <= rfA_waddr_Ihl;
+      rob_fill_slot_A_X0hl  <= rob_fill_slot_A_Ihl;
+      rob_fill_val_A_X0hl   <= rob_fill_val_A_Ihl && !bubble_next_Ihl;
 
-      irB_X0hl              <= irB_Dhl;
-      aluB_fn_X0hl          <= aluB_fn_Dhl;
-      rfB_wen_X0hl          <= rfB_wen_Dhl;
-      rfB_waddr_X0hl        <= rfB_waddr_Dhl;        
+      irB_X0hl              <= irB_Ihl;
+      aluB_fn_X0hl          <= aluB_fn_Ihl;
+      rfB_wen_X0hl          <= rfB_wen_Ihl;
+      rfB_waddr_X0hl        <= rfB_waddr_Ihl;
+      rob_fill_slot_B_X0hl  <= rob_fill_slot_B_Ihl;
+      rob_fill_val_B_X0hl   <= rob_fill_val_B_Ihl && !bubble_next_Ihl;
 
-      br_sel_X0hl           <= br_sel_Dhl;
-      muldivreq_val_X0hl    <= muldivreq_val_Dhl;
-      muldivreq_msg_fn_X0hl <= muldivreq_msg_fn_Dhl;
-      muldiv_mux_sel_X0hl   <= muldiv_mux_sel_Dhl;
-      execute_mux_sel_X0hl  <= execute_mux_sel_Dhl;
-      is_load_X0hl          <= is_load_Dhl;
-      is_muldiv_X0hl        <= muldivreq_val_Dhl;
-      memex_mux_sel_X0hl    <= memex_mux_sel_Dhl;
-      dmemreq_msg_rw_X0hl   <= dmemreq_msg_rw_Dhl;
-      dmemreq_msg_len_X0hl  <= dmemreq_msg_len_Dhl;
-      dmemreq_val_X0hl      <= dmemreq_val_Dhl;
-      dmemresp_mux_sel_X0hl <= dmemresp_mux_sel_Dhl;
-      csr_wen_X0hl          <= csr_wen_Dhl;
-      csr_addr_X0hl         <= csr_addr_Dhl;
+      br_sel_X0hl           <= br_sel_Ihl;
+      muldivreq_val_X0hl    <= muldivreq_val_Ihl;
+      muldivreq_msg_fn_X0hl <= muldivreq_msg_fn_Ihl;
+      muldiv_mux_sel_X0hl   <= muldiv_mux_sel_Ihl;
+      execute_mux_sel_X0hl  <= execute_mux_sel_Ihl;
+      memex_mux_sel_X0hl    <= memex_mux_sel_Ihl;
+      dmemreq_msg_rw_X0hl   <= dmemreq_msg_rw_Ihl;
+      dmemreq_msg_len_X0hl  <= dmemreq_msg_len_Ihl;
+      dmemreq_val_X0hl      <= dmemreq_val_Ihl;
+      dmemresp_mux_sel_X0hl <= dmemresp_mux_sel_Ihl;
+      csr_wen_X0hl          <= csr_wen_Ihl;
+      csr_addr_X0hl         <= csr_addr_Ihl;
 
-      bubble_X0hl           <= bubble_next_Dhl;
+      bubble_X0hl           <= bubble_next_Ihl;
 
-      // Squash the first D instruction if only instruction 0 is issued
+      // Squash the first I instruction if only instruction 0 is issued
       // and it is not a jump
 
-      if( ir0_issued_Dhl && !ir1_issued_Dhl && !squash_first_D_inst && !brj_taken_Dhl ) begin
-        squash_first_D_inst <= 1'b1;
+      if( ir0_issued_Ihl && !ir1_issued_Ihl && !squash_first_I_inst_Ihl
+          && !brj_taken_Ihl ) begin
+        squash_first_I_inst_Ihl <= 1'b1;
       end
-      else if( ir1_issued_Dhl || brj_taken_Dhl || brj_taken_X0hl ) begin
-        squash_first_D_inst <= 1'b0;
+      else if( ir1_issued_Ihl || brj_taken_Ihl || brj_taken_X0hl ) begin
+        squash_first_I_inst_Ihl <= 1'b0;
       end
     end
-
   end
 
   //----------------------------------------------------------------------
@@ -1096,7 +1369,7 @@ module riscv_CoreCtrl
 
   // Muldiv request
 
-  assign muldivreq_val = muldivreq_val_Dhl && inst_val_Dhl && (!stall_X0hl);
+  assign muldivreq_val = muldivreq_val_Ihl && inst_val_Ihl && (!stall_X0hl);
   assign muldivresp_rdy = !stall_X3hl;
 
   // Only send a valid dmem request if not stalled
@@ -1159,13 +1432,15 @@ module riscv_CoreCtrl
   reg [31:0] irA_X1hl;
   reg        rfA_wen_X1hl;
   reg  [4:0] rfA_waddr_X1hl;
+  reg  [4:0] rob_fill_slot_A_X1hl;
+  reg        rob_fill_val_A_X1hl;
 
   reg [31:0] irB_X1hl;
   reg        rfB_wen_X1hl;
-  reg  [4:0] rfB_waddr_X1hl;  
+  reg  [4:0] rfB_waddr_X1hl;
+  reg  [4:0] rob_fill_slot_B_X1hl;
+  reg        rob_fill_val_B_X1hl;
 
-  reg        is_load_X1hl;
-  reg        is_muldiv_X1hl;
   reg        dmemreq_val_X1hl;
   reg  [2:0] dmemresp_mux_sel_X1hl;
   reg        memex_mux_sel_X1hl;
@@ -1188,9 +1463,9 @@ module riscv_CoreCtrl
       irA_X1hl              <= irA_X0hl;
       rfA_wen_X1hl          <= rfA_wen_X0hl;
       rfA_waddr_X1hl        <= rfA_waddr_X0hl;
+      rob_fill_slot_A_X1hl  <= rob_fill_slot_A_X0hl;
+      rob_fill_val_A_X1hl   <= rob_fill_val_A_X0hl && !bubble_next_X0hl;
 
-      is_load_X1hl          <= is_load_X0hl;
-      is_muldiv_X1hl        <= is_muldiv_X0hl;
       dmemreq_val_X1hl      <= dmemreq_val;
       dmemresp_mux_sel_X1hl <= dmemresp_mux_sel_X0hl;
       memex_mux_sel_X1hl    <= memex_mux_sel_X0hl;
@@ -1204,7 +1479,9 @@ module riscv_CoreCtrl
 
       irB_X1hl              <= irB_X0hl;
       rfB_wen_X1hl          <= rfB_wen_X0hl;
-      rfB_waddr_X1hl        <= rfB_waddr_X0hl;        
+      rfB_waddr_X1hl        <= rfB_waddr_X0hl;
+      rob_fill_slot_B_X1hl  <= rob_fill_slot_B_X0hl;
+      rob_fill_val_B_X1hl   <= rob_fill_val_B_X0hl && !bubble_next_X0hl;
 
       bubble_X1hl           <= bubble_next_X0hl;
     end
@@ -1254,12 +1531,15 @@ module riscv_CoreCtrl
   reg [31:0] irA_X2hl;
   reg        rfA_wen_X2hl;
   reg  [4:0] rfA_waddr_X2hl;
+  reg  [4:0] rob_fill_slot_A_X2hl;
+  reg        rob_fill_val_A_X2hl;
 
   reg [31:0] irB_X2hl;
   reg        rfB_wen_X2hl;
   reg  [4:0] rfB_waddr_X2hl;
+  reg  [4:0] rob_fill_slot_B_X2hl;
+  reg        rob_fill_val_B_X2hl;
 
-  reg        is_muldiv_X2hl;
   reg        dmemresp_queue_val_X1hl;
   reg        csr_wen_X2hl;
   reg  [4:0] csr_addr_X2hl;
@@ -1278,12 +1558,15 @@ module riscv_CoreCtrl
       irA_X2hl              <= irA_X1hl;
       rfA_wen_X2hl          <= rfA_wen_X1hl;
       rfA_waddr_X2hl        <= rfA_waddr_X1hl;
+      rob_fill_slot_A_X2hl  <= rob_fill_slot_A_X1hl;
+      rob_fill_val_A_X2hl   <= rob_fill_val_A_X1hl && !bubble_next_X1hl;
 
       irB_X2hl              <= irB_X1hl;
       rfB_wen_X2hl          <= rfB_wen_X1hl;
-      rfB_waddr_X2hl        <= rfB_waddr_X1hl;      
+      rfB_waddr_X2hl        <= rfB_waddr_X1hl;
+      rob_fill_slot_B_X2hl  <= rob_fill_slot_B_X1hl;
+      rob_fill_val_B_X2hl   <= rob_fill_val_B_X1hl && !bubble_next_X1hl;
 
-      is_muldiv_X2hl        <= is_muldiv_X1hl;
       muldiv_mux_sel_X2hl   <= muldiv_mux_sel_X1hl;
       csr_wen_X2hl          <= csr_wen_X1hl;
       csr_addr_X2hl         <= csr_addr_X1hl;
@@ -1324,12 +1607,15 @@ module riscv_CoreCtrl
   reg [31:0] irA_X3hl;
   reg        rfA_wen_X3hl;
   reg  [4:0] rfA_waddr_X3hl;
+  reg  [4:0] rob_fill_slot_A_X3hl;
+  reg        rob_fill_val_A_X3hl;
 
   reg [31:0] irB_X3hl;
   reg        rfB_wen_X3hl;
-  reg  [4:0] rfB_waddr_X3hl;  
+  reg  [4:0] rfB_waddr_X3hl;
+  reg  [4:0] rob_fill_slot_B_X3hl;
+  reg        rob_fill_val_B_X3hl;
 
-  reg        is_muldiv_X3hl;
   reg        csr_wen_X3hl;
   reg  [4:0] csr_addr_X3hl;
   reg        execute_mux_sel_X3hl;
@@ -1347,12 +1633,15 @@ module riscv_CoreCtrl
       irA_X3hl              <= irA_X2hl;
       rfA_wen_X3hl          <= rfA_wen_X2hl;
       rfA_waddr_X3hl        <= rfA_waddr_X2hl;
+      rob_fill_slot_A_X3hl  <= rob_fill_slot_A_X2hl;
+      rob_fill_val_A_X3hl   <= rob_fill_val_A_X2hl && !bubble_next_X2hl;
 
       irB_X3hl              <= irB_X2hl;
       rfB_wen_X3hl          <= rfB_wen_X2hl;
       rfB_waddr_X3hl        <= rfB_waddr_X2hl;
+      rob_fill_slot_B_X3hl  <= rob_fill_slot_B_X2hl;
+      rob_fill_val_B_X3hl   <= rob_fill_val_B_X2hl && !bubble_next_X2hl;
 
-      is_muldiv_X3hl        <= is_muldiv_X2hl;
       muldiv_mux_sel_X3hl   <= muldiv_mux_sel_X2hl;
       csr_wen_X3hl          <= csr_wen_X2hl;
       csr_addr_X3hl         <= csr_addr_X2hl;
@@ -1392,10 +1681,14 @@ module riscv_CoreCtrl
   reg [31:0] irA_Whl;
   reg        rfA_wen_Whl;
   reg  [4:0] rfA_waddr_Whl;
+  reg  [4:0] rob_fill_slot_A_Whl;
+  reg        rob_fill_val_A_Whl;
 
   reg [31:0] irB_Whl;
   reg        rfB_wen_Whl;
   reg  [4:0] rfB_waddr_Whl;
+  reg  [4:0] rob_fill_slot_B_Whl;
+  reg        rob_fill_val_B_Whl;
 
   reg        csr_wen_Whl;
   reg  [4:0] csr_addr_Whl;
@@ -1412,10 +1705,14 @@ module riscv_CoreCtrl
       irA_Whl          <= irA_X3hl;
       rfA_wen_Whl      <= rfA_wen_X3hl;
       rfA_waddr_Whl    <= rfA_waddr_X3hl;
+      rob_fill_slot_A_Whl  <= rob_fill_slot_A_X3hl;
+      rob_fill_val_A_Whl   <= rob_fill_val_A_X3hl && !bubble_next_X3hl;
 
       irB_Whl          <= irB_X3hl;
       rfB_wen_Whl      <= rfB_wen_X3hl;
       rfB_waddr_Whl    <= rfB_waddr_X3hl;
+      rob_fill_slot_B_Whl  <= rob_fill_slot_B_X3hl;
+      rob_fill_val_B_Whl   <= rob_fill_val_B_X3hl && !bubble_next_X3hl;
 
       csr_wen_Whl      <= csr_wen_X3hl;
       csr_addr_Whl     <= csr_addr_X3hl;
@@ -1441,6 +1738,11 @@ module riscv_CoreCtrl
 
   wire squash_Whl = 1'b0;
   wire stall_Whl  = 1'b0;
+
+  // Reorder Buffer signals
+
+  wire rob_fill_wen_A_Whl = rfA_wen_out_Whl && rob_fill_val_A_Whl;
+  wire rob_fill_wen_B_Whl = rfB_wen_out_Whl && rob_fill_val_B_Whl;
 
   //----------------------------------------------------------------------
   // Debug registers for instruction disassembly
@@ -1588,8 +1890,8 @@ module riscv_CoreCtrl
   reg [31:0] num_cycles  = 32'b0;
   reg        stats_en    = 1'b0; // Used for enabling stats on asm tests
 
-  wire count0 = ir0_issued_Dhl && cs0[`RISCV_INST_MSG_INST_VAL];
-  wire count1 = ir1_issued_Dhl && cs1[`RISCV_INST_MSG_INST_VAL];
+  wire count0 = ir0_issued_Ihl && inst_val_Ihl;
+  wire count1 = ir1_issued_Ihl && inst_val_Ihl;
 
   always @( posedge clk ) begin
     if ( !reset ) begin
@@ -1600,7 +1902,7 @@ module riscv_CoreCtrl
         num_cycles = num_cycles + 1;
 
         // Count instructions that reah writeback
-        if ( inst_val_Dhl ) begin
+        if ( inst_val_Ihl ) begin
           if ( count0 && count1 ) begin
             num_inst = num_inst + 2;
           end

@@ -258,7 +258,7 @@ module riscv_sim;
 
       $write( "|" );
 
-      if ( proc.ctrl.steering_mux_sel_Dhl )
+      if ( proc.ctrl.steering_mux_sel_Ihl )
         $write( " \\/ " );
       else
         $write( " -- " );
@@ -354,7 +354,7 @@ module riscv_sim;
 
       $write( "|" );
 
-      if ( proc.ctrl.steering_mux_sel_Dhl )
+      if ( proc.ctrl.steering_mux_sel_Ihl )
         $write( " /\\ " );
       else
         $write( " -- " );

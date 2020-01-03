@@ -66,20 +66,20 @@ module riscv_Core
   wire [31:0] dmemresp_msg_data;
 
   wire  [1:0] pc_mux_sel_Phl;
-  wire        steering_mux_sel_Dhl;
-  wire  [3:0] opA0_byp_mux_sel_Dhl;
-  wire  [1:0] opA0_mux_sel_Dhl;
-  wire  [3:0] opA1_byp_mux_sel_Dhl;
-  wire  [2:0] opA1_mux_sel_Dhl;
-  wire  [3:0] opB0_byp_mux_sel_Dhl;
-  wire  [1:0] opB0_mux_sel_Dhl;
-  wire  [3:0] opB1_byp_mux_sel_Dhl;
-  wire  [2:0] opB1_mux_sel_Dhl;
-  wire [31:0] instA_Dhl;
-  wire [31:0] instB_Dhl;
+  wire        steering_mux_sel_Ihl;
+  wire  [3:0] opA0_byp_mux_sel_Ihl;
+  wire  [1:0] opA0_mux_sel_Ihl;
+  wire  [3:0] opA1_byp_mux_sel_Ihl;
+  wire  [2:0] opA1_mux_sel_Ihl;
+  wire  [3:0] opB0_byp_mux_sel_Ihl;
+  wire  [1:0] opB0_mux_sel_Ihl;
+  wire  [3:0] opB1_byp_mux_sel_Ihl;
+  wire  [2:0] opB1_mux_sel_Ihl;
+  wire [31:0] instA_Ihl;
+  wire [31:0] instB_Ihl;
   wire  [3:0] aluA_fn_X0hl;
   wire  [3:0] aluB_fn_X0hl;
-  wire  [2:0] muldivreq_msg_fn_Dhl;
+  wire  [2:0] muldivreq_msg_fn_Ihl;
   wire        muldivreq_val;
   wire        muldivreq_rdy;
   wire        muldivresp_val;
@@ -90,12 +90,9 @@ module riscv_Core
   wire        muldiv_mux_sel_X3hl;
   wire        execute_mux_sel_X3hl;
   wire        memex_mux_sel_X1hl;
-  wire        rfA_wen_Whl;
-  wire  [4:0] rfA_waddr_Whl;
-  wire        rfB_wen_Whl;
-  wire  [4:0] rfB_waddr_Whl;
   wire        stall_Fhl;
   wire        stall_Dhl;
+  wire        stall_Ihl;
   wire        stall_X0hl;
   wire        stall_X1hl;
   wire        stall_X2hl;
@@ -109,6 +106,23 @@ module riscv_Core
   wire        branch_cond_ge_X0hl;
   wire        branch_cond_geu_X0hl;
   wire [31:0] proc2csr_data_Whl;
+
+  wire [ 4:0] opA0_byp_rob_slot_Ihl;
+  wire [ 4:0] opA1_byp_rob_slot_Ihl;
+  wire [ 4:0] opB0_byp_rob_slot_Ihl;
+  wire [ 4:0] opB1_byp_rob_slot_Ihl;
+
+  wire        rob_fill_wen_A_Whl;
+  wire [ 4:0] rob_fill_slot_A_Whl;
+  wire        rob_fill_wen_B_Whl;
+  wire [ 4:0] rob_fill_slot_B_Whl;
+
+  wire        rob_commit_wen_1_Chl;
+  wire [ 4:0] rob_commit_slot_1_Chl;
+  wire [ 4:0] rob_commit_waddr_1_Chl;
+  wire        rob_commit_wen_2_Chl;
+  wire [ 4:0] rob_commit_slot_2_Chl;
+  wire [ 4:0] rob_commit_waddr_2_Chl;
 
   //----------------------------------------------------------------------
   // Pack Memory Request Messages
@@ -203,20 +217,20 @@ module riscv_Core
     // Controls Signals (ctrl->dpath)
 
     .pc_mux_sel_Phl          (pc_mux_sel_Phl),
-    .steering_mux_sel_Dhl    (steering_mux_sel_Dhl),
-    .opA0_byp_mux_sel_Dhl    (opA0_byp_mux_sel_Dhl),
-    .opA0_mux_sel_Dhl        (opA0_mux_sel_Dhl),
-    .opA1_byp_mux_sel_Dhl    (opA1_byp_mux_sel_Dhl),
-    .opA1_mux_sel_Dhl        (opA1_mux_sel_Dhl),
-    .opB0_byp_mux_sel_Dhl    (opB0_byp_mux_sel_Dhl),
-    .opB0_mux_sel_Dhl        (opB0_mux_sel_Dhl),
-    .opB1_byp_mux_sel_Dhl    (opB1_byp_mux_sel_Dhl),
-    .opB1_mux_sel_Dhl        (opB1_mux_sel_Dhl),
-    .instA_Dhl               (instA_Dhl),
-    .instB_Dhl               (instB_Dhl),
+    .steering_mux_sel_Ihl    (steering_mux_sel_Ihl),
+    .opA0_byp_mux_sel_Ihl    (opA0_byp_mux_sel_Ihl),
+    .opA0_mux_sel_Ihl        (opA0_mux_sel_Ihl),
+    .opA1_byp_mux_sel_Ihl    (opA1_byp_mux_sel_Ihl),
+    .opA1_mux_sel_Ihl        (opA1_mux_sel_Ihl),
+    .opB0_byp_mux_sel_Ihl    (opB0_byp_mux_sel_Ihl),
+    .opB0_mux_sel_Ihl        (opB0_mux_sel_Ihl),
+    .opB1_byp_mux_sel_Ihl    (opB1_byp_mux_sel_Ihl),
+    .opB1_mux_sel_Ihl        (opB1_mux_sel_Ihl),
+    .instA_Ihl               (instA_Ihl),
+    .instB_Ihl               (instB_Ihl),
     .aluA_fn_X0hl            (aluA_fn_X0hl),
     .aluB_fn_X0hl            (aluB_fn_X0hl),
-    .muldivreq_msg_fn_Dhl    (muldivreq_msg_fn_Dhl),
+    .muldivreq_msg_fn_Ihl    (muldivreq_msg_fn_Ihl),
     .muldivreq_val           (muldivreq_val),
     .muldivreq_rdy           (muldivreq_rdy),
     .muldivresp_val          (muldivresp_val),
@@ -227,12 +241,9 @@ module riscv_Core
     .muldiv_mux_sel_X3hl     (muldiv_mux_sel_X3hl),
     .execute_mux_sel_X3hl    (execute_mux_sel_X3hl),
     .memex_mux_sel_X1hl      (memex_mux_sel_X1hl),
-    .rfA_wen_out_Whl         (rfA_wen_Whl),
-    .rfA_waddr_Whl           (rfA_waddr_Whl),
-    .rfB_wen_out_Whl         (rfB_wen_Whl),
-    .rfB_waddr_Whl           (rfB_waddr_Whl),
     .stall_Fhl               (stall_Fhl),
     .stall_Dhl               (stall_Dhl),
+    .stall_Ihl               (stall_Ihl),
     .stall_X0hl              (stall_X0hl),
     .stall_X1hl              (stall_X1hl),
     .stall_X2hl              (stall_X2hl),
@@ -248,6 +259,24 @@ module riscv_Core
     .branch_cond_ge_X0hl	  (branch_cond_ge_X0hl),
     .branch_cond_geu_X0hl	  (branch_cond_geu_X0hl),
     .proc2csr_data_Whl      (proc2csr_data_Whl),
+
+    // Reorder Buffer Signals (ctrl->dpath)
+    .opA0_byp_rob_slot_Ihl  (opA0_byp_rob_slot_Ihl),
+    .opA1_byp_rob_slot_Ihl  (opA1_byp_rob_slot_Ihl),
+    .opB0_byp_rob_slot_Ihl  (opB0_byp_rob_slot_Ihl),
+    .opB1_byp_rob_slot_Ihl  (opB1_byp_rob_slot_Ihl),
+
+    .rob_fill_wen_A_Whl     (rob_fill_wen_A_Whl),
+    .rob_fill_slot_A_Whl    (rob_fill_slot_A_Whl),
+    .rob_fill_wen_B_Whl     (rob_fill_wen_B_Whl),
+    .rob_fill_slot_B_Whl    (rob_fill_slot_B_Whl),
+
+    .rob_commit_wen_1_Chl   (rob_commit_wen_1_Chl),
+    .rob_commit_slot_1_Chl  (rob_commit_slot_1_Chl),
+    .rob_commit_waddr_1_Chl (rob_commit_waddr_1_Chl),
+    .rob_commit_wen_2_Chl   (rob_commit_wen_2_Chl),
+    .rob_commit_slot_2_Chl  (rob_commit_slot_2_Chl),
+    .rob_commit_waddr_2_Chl (rob_commit_waddr_2_Chl),
 
     // CSR Status
 
@@ -277,20 +306,20 @@ module riscv_Core
     // Controls Signals (ctrl->dpath)
 
     .pc_mux_sel_Phl           (pc_mux_sel_Phl),
-    .steering_mux_sel_Dhl     (steering_mux_sel_Dhl),
-    .opA0_byp_mux_sel_Dhl     (opA0_byp_mux_sel_Dhl),
-    .opA0_mux_sel_Dhl         (opA0_mux_sel_Dhl),
-    .opA1_byp_mux_sel_Dhl     (opA1_byp_mux_sel_Dhl),
-    .opA1_mux_sel_Dhl         (opA1_mux_sel_Dhl),
-    .opB0_byp_mux_sel_Dhl     (opB0_byp_mux_sel_Dhl),
-    .opB0_mux_sel_Dhl         (opB0_mux_sel_Dhl),
-    .opB1_byp_mux_sel_Dhl     (opB1_byp_mux_sel_Dhl),
-    .opB1_mux_sel_Dhl         (opB1_mux_sel_Dhl),
-    .instA_Dhl                (instA_Dhl),
-    .instB_Dhl                (instB_Dhl),
+    .steering_mux_sel_Ihl     (steering_mux_sel_Ihl),
+    .opA0_byp_mux_sel_Ihl     (opA0_byp_mux_sel_Ihl),
+    .opA0_mux_sel_Ihl         (opA0_mux_sel_Ihl),
+    .opA1_byp_mux_sel_Ihl     (opA1_byp_mux_sel_Ihl),
+    .opA1_mux_sel_Ihl         (opA1_mux_sel_Ihl),
+    .opB0_byp_mux_sel_Ihl     (opB0_byp_mux_sel_Ihl),
+    .opB0_mux_sel_Ihl         (opB0_mux_sel_Ihl),
+    .opB1_byp_mux_sel_Ihl     (opB1_byp_mux_sel_Ihl),
+    .opB1_mux_sel_Ihl         (opB1_mux_sel_Ihl),
+    .instA_Ihl                (instA_Ihl),
+    .instB_Ihl                (instB_Ihl),
     .aluA_fn_X0hl             (aluA_fn_X0hl),
     .aluB_fn_X0hl             (aluB_fn_X0hl),
-    .muldivreq_msg_fn_Dhl     (muldivreq_msg_fn_Dhl),
+    .muldivreq_msg_fn_Ihl     (muldivreq_msg_fn_Ihl),
     .muldivreq_val            (muldivreq_val),
     .muldivreq_rdy            (muldivreq_rdy),
     .muldivresp_val           (muldivresp_val),
@@ -301,12 +330,9 @@ module riscv_Core
     .muldiv_mux_sel_X3hl      (muldiv_mux_sel_X3hl),
     .execute_mux_sel_X3hl     (execute_mux_sel_X3hl),
     .memex_mux_sel_X1hl       (memex_mux_sel_X1hl),
-    .rfA_wen_Whl              (rfA_wen_Whl),
-    .rfA_waddr_Whl            (rfA_waddr_Whl),
-    .rfB_wen_Whl              (rfB_wen_Whl),
-    .rfB_waddr_Whl            (rfB_waddr_Whl),
     .stall_Fhl                (stall_Fhl),
     .stall_Dhl                (stall_Dhl),
+    .stall_Ihl                (stall_Ihl),
     .stall_X0hl               (stall_X0hl),
     .stall_X1hl               (stall_X1hl),
     .stall_X2hl               (stall_X2hl),
@@ -321,7 +347,25 @@ module riscv_Core
     .branch_cond_ltu_X0hl	   (branch_cond_ltu_X0hl),
     .branch_cond_ge_X0hl	   (branch_cond_ge_X0hl),
     .branch_cond_geu_X0hl	   (branch_cond_geu_X0hl),
-    .proc2csr_data_Whl       (proc2csr_data_Whl)
+    .proc2csr_data_Whl       (proc2csr_data_Whl),
+
+    // Reorder Buffer Signals (ctrl->dpath)
+    .opA0_byp_rob_slot_Ihl  (opA0_byp_rob_slot_Ihl),
+    .opA1_byp_rob_slot_Ihl  (opA1_byp_rob_slot_Ihl),
+    .opB0_byp_rob_slot_Ihl  (opB0_byp_rob_slot_Ihl),
+    .opB1_byp_rob_slot_Ihl  (opB1_byp_rob_slot_Ihl),
+    
+    .rob_fill_wen_A_Whl     (rob_fill_wen_A_Whl),
+    .rob_fill_slot_A_Whl    (rob_fill_slot_A_Whl),
+    .rob_fill_wen_B_Whl     (rob_fill_wen_B_Whl),
+    .rob_fill_slot_B_Whl    (rob_fill_slot_B_Whl),
+
+    .rob_commit_wen_1_Chl   (rob_commit_wen_1_Chl),
+    .rob_commit_slot_1_Chl  (rob_commit_slot_1_Chl),
+    .rob_commit_waddr_1_Chl (rob_commit_waddr_1_Chl),
+    .rob_commit_wen_2_Chl   (rob_commit_wen_2_Chl),
+    .rob_commit_slot_2_Chl  (rob_commit_slot_2_Chl),
+    .rob_commit_waddr_2_Chl (rob_commit_waddr_2_Chl)
   );
 
 endmodule

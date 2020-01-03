@@ -11,25 +11,27 @@ module riscv_CoreScoreboard
   input         reset,
 
   input  [ 4:0] src00,            // Source 0 of ir0
-  input         src00_en,         // Use source 0 of ir0
+  input         src00_en,
   input  [ 4:0] src01,            // Source 1 of ir0
-  input         src01_en,         // Use source 1 of ir0
+  input         src01_en,
   input  [ 4:0] dst0,             // Instruction 0 destination register
   input         dst0_en,          // Write to destination register
+  input  [ 4:0] dst_slot_0,       // Destination 0 ROB slot
   input  [ 1:0] func_ir0,         // Ir0 type
   input         ir0_issued,
 
   input  [ 4:0] src10,            // Source 0 of ir1
-  input         src10_en,         // Use source 0 of ir1
+  input         src10_en,
   input  [ 4:0] src11,            // Source 1 of ir1
-  input         src11_en,         // Use source 1 of ir1
+  input         src11_en,
   input  [ 4:0] dst1,             // Instruction 1 destination register
   input         dst1_en,          // Write to destination register
+  input  [ 4:0] dst_slot_1,       // Destination 1 ROB slot
   input  [ 1:0] func_ir1,         // Ir1 type
   input         ir1_issued,
 
   input         steer_signal,     // Steering signal to determine pipelines
-  input         inst_val_Dhl,
+  input         inst_val_Ihl,
 
   input         stall_X0hl,
   input         stall_X1hl,
@@ -37,18 +39,29 @@ module riscv_CoreScoreboard
   input         stall_X3hl,
   input         stall_Whl,
 
+  input  [ 4:0] rob_commit_slot_1,  // First committed slot in the ROB
+  input         rob_commit_wen_1,   // Ensure ROB slot 1 is valid
+  input  [ 4:0] rob_commit_slot_2,  // Second committed slot in the ROB
+  input         rob_commit_wen_2,   // Ensure ROB slot 2 is valid
+
   output        stall_ir0,        // Src0 stall signal from scoreboard
   output        stall_ir1,        // Src1 stall signal from scoreboard
 
   output [ 3:0] op00_byp_mux_sel, // Ir0, src0 bypass signal
   output [ 3:0] op01_byp_mux_sel, // Ir0, src1 bypass signal
   output [ 3:0] op10_byp_mux_sel, // Ir1, src0 bypass signal
-  output [ 3:0] op11_byp_mux_sel  // Ir1, src1 bypass signal
+  output [ 3:0] op11_byp_mux_sel, // Ir1, src1 bypass signal
+
+  output [ 4:0] op00_byp_rob_slot,  // Ir0, src0 ROB slot
+  output [ 4:0] op01_byp_rob_slot,  // Ir0, src1 ROB slot
+  output [ 4:0] op10_byp_rob_slot,  // Ir1, src0 ROB slot
+  output [ 4:0] op11_byp_rob_slot   // Ir1, src1 ROB slot
 );
 
   reg [31:0] pending;
   reg [31:0] pipeline;
   reg [ 4:0] reg_latency  [31:0];
+  reg [ 4:0] rob_slots    [31:0];
   reg [ 1:0] func_unit    [31:0];
 
   localparam alu_inst     = 2'b00;
@@ -60,6 +73,12 @@ module riscv_CoreScoreboard
                         stall_X2hl,
                         stall_X3hl,
                         stall_Whl};
+
+  wire [4:0] op00_byp_rob_slot = rob_slots[src00];
+  wire [4:0] op01_byp_rob_slot = rob_slots[src01];
+  wire [4:0] op10_byp_rob_slot = rob_slots[src10];
+  wire [4:0] op11_byp_rob_slot = rob_slots[src11];
+
   integer i;
   always @ ( posedge clk ) begin
     if ( reset ) begin
@@ -89,12 +108,14 @@ module riscv_CoreScoreboard
           pipeline[i]    <= steer_signal;
           pending[i]     <= 1'b1;
           func_unit[i]   <= func_ir0;
+          rob_slots[i]   <= dst_slot_0;
         end
         else if ( ir1_issued && dst1_en && ( i == dst1 ) ) begin
           reg_latency[i] <= 5'b10000;
           pipeline[i]    <= !steer_signal;
           pending[i]     <= 1'b1;
           func_unit[i]   <= func_ir1;
+          rob_slots[i]   <= dst_slot_1;
         end
 
         //----------------------------------------------------------------------
@@ -104,10 +125,15 @@ module riscv_CoreScoreboard
         // Shift reg_latency based on the combined stall vector.
         // The pending bit is set to 1 if the instruction is still in the pipeline,
         // not necessarily if it cannot yet be bypassed.
+        // Pending bit gets reset to 0 once the instruction is committed in the ROB
         else begin
           reg_latency[i] <= ( reg_latency[i] & stalls ) |
                             ( ( reg_latency[i] & ~stalls ) >> 1 );
-          if ( reg_latency[i] == 5'b00001 && !stalls[0] ) begin
+
+          if ( rob_commit_wen_1 && rob_commit_slot_1 == rob_slots[i] ) begin
+            pending[i] <= 1'b0;
+          end
+          else if ( rob_commit_wen_2 && rob_commit_slot_2 == rob_slots[i] ) begin
             pending[i] <= 1'b0;
           end
         end
@@ -131,35 +157,19 @@ module riscv_CoreScoreboard
   localparam byp_BX2 = 4'd8;  // Bypass from BX2
   localparam byp_BX3 = 4'd9;  // Bypass from BX3
   localparam byp_BW  = 4'd10; // Bypass from BW
-  localparam byp_rob = 4'd11; // Bypass from reorder buffer
+  localparam byp_ROB = 4'd11; // Bypass from reorder buffer
 
-  wire rs00_bypA_cond_Dhl = src00_en
-                         && !pipeline[src00]
-                         && (src00 != 5'd0);
-  wire rs00_bypB_cond_Dhl = src00_en
-                         && pipeline[src00]
-                         && (src00 != 5'd0);
+  wire rs00_bypA_cond_Dhl = !pipeline[src00] && (src00 != 5'd0);
+  wire rs00_bypB_cond_Dhl = pipeline[src00]  && (src00 != 5'd0);
 
-  wire rs01_bypA_cond_Dhl = src01_en
-                         && !pipeline[src01]
-                         && (src01 != 5'd0);
-  wire rs01_bypB_cond_Dhl = src01_en
-                         && pipeline[src01]
-                         && (src01 != 5'd0);                                               
+  wire rs01_bypA_cond_Dhl = !pipeline[src01] && (src01 != 5'd0);
+  wire rs01_bypB_cond_Dhl = pipeline[src01]  && (src01 != 5'd0);                                               
 
-  wire rs10_bypA_cond_Dhl = src10_en
-                         && !pipeline[src10]
-                         && (src10 != 5'd0);
-  wire rs10_bypB_cond_Dhl = src10_en
-                         && pipeline[src10]
-                         && (src10 != 5'd0);
+  wire rs10_bypA_cond_Dhl = !pipeline[src10] && (src10 != 5'd0);
+  wire rs10_bypB_cond_Dhl = pipeline[src10]  && (src10 != 5'd0);
 
-  wire rs11_bypA_cond_Dhl = src11_en
-                         && !pipeline[src11]
-                         && (src11 != 5'd0);
-  wire rs11_bypB_cond_Dhl = src11_en
-                         && pipeline[src11]
-                         && (src11 != 5'd0);                         
+  wire rs11_bypA_cond_Dhl = !pipeline[src11] && (src11 != 5'd0);
+  wire rs11_bypB_cond_Dhl = pipeline[src11]  && (src11 != 5'd0);                         
 
   // Operand Bypass Mux Select
 
@@ -178,6 +188,8 @@ module riscv_CoreScoreboard
 
     : (rs00_bypA_cond_Dhl && ( reg_latency[src00] & 5'b00001)) ? byp_AW
     : (rs00_bypB_cond_Dhl && ( reg_latency[src00] & 5'b00001)) ? byp_BW
+
+    : ((src00 != 5'd0) && pending[src00] && (reg_latency[src00] == 5'd0)) ? byp_ROB
     :                                                byp_r0;  
 
   wire [3:0] op01_byp_mux_sel
@@ -195,6 +207,8 @@ module riscv_CoreScoreboard
 
     : (rs01_bypA_cond_Dhl && ( reg_latency[src01] & 5'b00001)) ? byp_AW
     : (rs01_bypB_cond_Dhl && ( reg_latency[src01] & 5'b00001)) ? byp_BW
+
+    : ((src01 != 5'd0) && pending[src01] && (reg_latency[src01] == 5'd0)) ? byp_ROB
     :                                                byp_r0;     
 
   wire [3:0] op10_byp_mux_sel
@@ -212,6 +226,8 @@ module riscv_CoreScoreboard
 
     : (rs10_bypA_cond_Dhl && ( reg_latency[src10] & 5'b00001)) ? byp_AW
     : (rs10_bypB_cond_Dhl && ( reg_latency[src10] & 5'b00001)) ? byp_BW
+
+    : ((src10 != 5'd0) && pending[src10] && (reg_latency[src10] == 5'd0)) ? byp_ROB
     :                                                byp_r0;      
     
   wire [3:0] op11_byp_mux_sel
@@ -229,6 +245,8 @@ module riscv_CoreScoreboard
 
     : (rs11_bypA_cond_Dhl && ( reg_latency[src11] & 5'b00001)) ? byp_AW
     : (rs11_bypB_cond_Dhl && ( reg_latency[src11] & 5'b00001)) ? byp_BW
+
+    : ((src11 != 5'd0) && pending[src11] && (reg_latency[src11] == 5'd0)) ? byp_ROB
     :                                                byp_r0;     
 
   //----------------------------------------------------------------------
@@ -240,30 +258,41 @@ module riscv_CoreScoreboard
     = (func_unit[src00] == alu_inst)    ? 1'b1
     : (func_unit[src00] == mem_inst)    ? reg_latency[src00] < 5'b10000
     : (func_unit[src00] == muldiv_inst) ? reg_latency[src00] < 5'b00100
+    : (reg_latency[src00] == 5'b00000)  ? 1'b1
     : 1'b0;
   wire op01_can_byp
     = (func_unit[src01] == alu_inst)    ? 1'b1
     : (func_unit[src01] == mem_inst)    ? reg_latency[src01] < 5'b10000
     : (func_unit[src01] == muldiv_inst) ? reg_latency[src01] < 5'b00100
+    : (reg_latency[src01] == 5'b00000)  ? 1'b1
     : 1'b0;
   wire op10_can_byp
     = (func_unit[src10] == alu_inst)    ? 1'b1
     : (func_unit[src10] == mem_inst)    ? reg_latency[src10] < 5'b10000
     : (func_unit[src10] == muldiv_inst) ? reg_latency[src10] < 5'b00100
+    : (reg_latency[src10] == 5'b00000)  ? 1'b1
     : 1'b0;
   wire op11_can_byp
     = (func_unit[src11] == alu_inst)    ? 1'b1
     : (func_unit[src11] == mem_inst)    ? reg_latency[src11] < 5'b10000
     : (func_unit[src11] == muldiv_inst) ? reg_latency[src11] < 5'b00100
+    : (reg_latency[src11] == 5'b00000)  ? 1'b1
     : 1'b0;
 
-  wire stall_ir0 = ( ( pending[src00] && !op00_can_byp )
-                  || ( pending[src01] && !op01_can_byp ) )
-                          && inst_val_Dhl;
-  wire stall_ir1 = ( ( pending[src10] && !op10_can_byp )
-                  || ( pending[src11] && !op11_can_byp ) )
-                          && inst_val_Dhl; 
+  wire stall_ir0 = ( ( pending[src00] && !op00_can_byp && src00_en)
+                  || ( pending[src01] && !op01_can_byp && src01_en) )
+                          && inst_val_Ihl;
+  wire stall_ir1 = ( ( pending[src10] && !op10_can_byp && src10_en)
+                  || ( pending[src11] && !op11_can_byp && src11_en) )
+                          && inst_val_Ihl; 
 
+
+  // initial begin
+  //   for(i = 0; i < 32; i = i + 1) begin
+  //     $dumpvars(0, rob_slots[i]);
+  //     $dumpvars(0, reg_latency[i]);
+  //   end
+  // end
 
 endmodule
 
