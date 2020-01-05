@@ -900,6 +900,9 @@ module riscv_CoreCtrl
                              && ( rf0_waddr_Ihl == rf1_waddr_Ihl)
                              && ( !squash_first_I_inst_Ihl );
 
+  // WAW hazards are handled by the reorder buffer
+  // wire stall_1_WAW_Ihl = 1'b0;
+
   // A structural hazard exists if both instructions are not simple
   // ALU instructions. Alternatively, both instructions are loads, stores,
   // muldivs, jumps, branches, or CSRWs.
@@ -932,6 +935,7 @@ module riscv_CoreCtrl
     end
     else stall_1_no_spec_Ihl = 1'b0;
   end
+  // wire stall_1_no_spec_Ihl = 1'b0;
 
   // Signals to indicate when both instructions are issued, or if only
   // instruction 0 was issued
@@ -1053,6 +1057,7 @@ module riscv_CoreCtrl
       // ALSO IF ir0 IS NOT A BRANCH ----> DISALLOWING SPECULATION
       //----------------------------------------------------------------------
       if( !stall_1_Ihl && !stall_0_Ihl && !brj_taken_Ihl ) begin
+      // if( !stall_1_Ihl && !stall_0_Ihl ) begin
         irB_Ihl              = ir1_Ihl;
         rfB_wen_Ihl          = rf1_wen_Ihl;
         rfB_waddr_Ihl        = rf1_waddr_Ihl;
@@ -1154,33 +1159,35 @@ module riscv_CoreCtrl
   wire [3:0] op10_byp_mux_sel_Ihl;
   wire [3:0] op11_byp_mux_sel_Ihl;
 
-  wire [4:0] op00_byp_rob_slot_Ihl;
-  wire [4:0] op01_byp_rob_slot_Ihl;
-  wire [4:0] op10_byp_rob_slot_Ihl;
-  wire [4:0] op11_byp_rob_slot_Ihl;
+  wire [4:0] op00_byp_rob_slot_Ihl = rs00_rt_slot_Ihl;
+  wire [4:0] op01_byp_rob_slot_Ihl = rs01_rt_slot_Ihl;
+  wire [4:0] op10_byp_rob_slot_Ihl = rs10_rt_slot_Ihl;
+  wire [4:0] op11_byp_rob_slot_Ihl = rs11_rt_slot_Ihl;
 
   riscv_CoreScoreboard scoreboard
   (
     .clk                (clk),
     .reset              (reset),
 
-    .src00              (rs00_addr_Ihl),
+    .src00              (rs00_rt_slot_Ihl),
     .src00_en           (rs00_en_Ihl),
-    .src01              (rs01_addr_Ihl),
+    .src00_renamed      (rs00_renamed_Ihl),
+    .src01              (rs01_rt_slot_Ihl),
     .src01_en           (rs01_en_Ihl),
-    .dst0               (rf0_waddr_Ihl),
+    .src01_renamed      (rs01_renamed_Ihl),
+    .dst0               (rob_fill_slot_0_Ihl),
     .dst0_en            (rf0_wen_Ihl),
-    .dst_slot_0         (rob_fill_slot_0_Ihl),
     .func_ir0           (func_ir0_Ihl),
     .ir0_issued         (ir0_issued_Ihl),
 
-    .src10              (rs10_addr_Ihl),
+    .src10              (rs10_rt_slot_Ihl),
     .src10_en           (rs10_en_Ihl),
-    .src11              (rs11_addr_Ihl),
+    .src10_renamed      (rs10_renamed_Ihl),
+    .src11              (rs11_rt_slot_Ihl),
     .src11_en           (rs11_en_Ihl),
-    .dst1               (rf1_waddr_Ihl),
+    .src11_renamed      (rs11_renamed_Ihl),
+    .dst1               (rob_fill_slot_1_Ihl),
     .dst1_en            (rf1_wen_Ihl),
-    .dst_slot_1         (rob_fill_slot_1_Ihl),
     .func_ir1           (func_ir1_Ihl),
     .ir1_issued         (ir1_issued_Ihl),
 
@@ -1204,12 +1211,12 @@ module riscv_CoreCtrl
     .op00_byp_mux_sel   (op00_byp_mux_sel_Ihl),
     .op01_byp_mux_sel   (op01_byp_mux_sel_Ihl),
     .op10_byp_mux_sel   (op10_byp_mux_sel_Ihl),
-    .op11_byp_mux_sel   (op11_byp_mux_sel_Ihl),
+    .op11_byp_mux_sel   (op11_byp_mux_sel_Ihl)
 
-    .op00_byp_rob_slot  (op00_byp_rob_slot_Ihl),
-    .op01_byp_rob_slot  (op01_byp_rob_slot_Ihl),
-    .op10_byp_rob_slot  (op10_byp_rob_slot_Ihl),
-    .op11_byp_rob_slot  (op11_byp_rob_slot_Ihl)
+    // .op00_byp_rob_slot  (op00_byp_rob_slot_Ihl),
+    // .op01_byp_rob_slot  (op01_byp_rob_slot_Ihl),
+    // .op10_byp_rob_slot  (op10_byp_rob_slot_Ihl),
+    // .op11_byp_rob_slot  (op11_byp_rob_slot_Ihl)
   );
 
   //----------------------------------------------------------------------
@@ -1221,18 +1228,36 @@ module riscv_CoreCtrl
   wire [4:0]  rob_fill_slot_0_Ihl;
   wire [4:0]  rob_fill_slot_1_Ihl;
 
+  wire rob_req_spec_1 = 1'b0;
+  wire rob_req_spec_2 = 1'b0;
+  // wire rob_req_spec_2 = inst_val_Ihl && !squash_first_I_inst_Ihl && br0_sel_Ihl;
+
   wire rob_req_val_1_Ihl = ir0_issued_Ihl;
   wire rob_req_val_2_Ihl = ir1_issued_Ihl;
+
+  wire rs00_renamed_Ihl;
+  wire rs01_renamed_Ihl;
+  wire rs10_renamed_Ihl;
+  wire rs11_renamed_Ihl;
+
+  wire [4:0] rs00_rt_slot_Ihl;
+  wire [4:0] rs01_rt_slot_Ihl;
+  wire [4:0] rs10_rt_slot_Ihl;
+  wire [4:0] rs11_rt_slot_Ihl;
 
   riscv_CoreReorderBuffer rob
   (
     .clk                         (clk),
     .reset                       (reset),
 
+    .brj_taken_X0hl              (brj_taken_X0hl),
+    .brj_resolved_X0hl           (brj_resolved_X0hl),
+
     .rob_alloc_req_rdy           (rob_req_rdy_Ihl),
 
     .rob_alloc_req_val_1         (rob_req_val_1_Ihl),
     .rob_alloc_req_wen_1         (rf0_wen_Ihl),
+    .rob_alloc_req_spec_1        (rob_req_spec_1),
     .rob_alloc_req_preg_1        (rf0_waddr_Ihl),
     .rob_alloc_resp_slot_1       (rob_fill_slot_0_Ihl),
     .rob_fill_val_1              (rob_fill_val_A_Whl),
@@ -1242,14 +1267,30 @@ module riscv_CoreCtrl
     .rob_commit_rf_waddr_1       (rob_commit_waddr_1_Chl),
 
     .rob_alloc_req_val_2         (rob_req_val_2_Ihl),
-    .rob_alloc_req_preg_2        (rf1_waddr_Ihl),
     .rob_alloc_req_wen_2         (rf1_wen_Ihl),
+    .rob_alloc_req_spec_2        (rob_req_spec_2),
+    .rob_alloc_req_preg_2        (rf1_waddr_Ihl),
     .rob_alloc_resp_slot_2       (rob_fill_slot_1_Ihl),
     .rob_fill_val_2              (rob_fill_val_B_Whl),
     .rob_fill_slot_2             (rob_fill_slot_B_Whl),
     .rob_commit_slot_2           (rob_commit_slot_2_Chl),
     .rob_commit_wen_2            (rob_commit_wen_2_Chl),
-    .rob_commit_rf_waddr_2       (rob_commit_waddr_2_Chl)
+    .rob_commit_rf_waddr_2       (rob_commit_waddr_2_Chl),
+
+    .src00                       (rs00_addr_Ihl),
+    .src01                       (rs01_addr_Ihl),
+    .src10                       (rs10_addr_Ihl),
+    .src11                       (rs11_addr_Ihl),
+
+    .src00_renamed               (rs00_renamed_Ihl),
+    .src01_renamed               (rs01_renamed_Ihl),
+    .src10_renamed               (rs10_renamed_Ihl),
+    .src11_renamed               (rs11_renamed_Ihl),
+
+    .src00_slot                  (rs00_rt_slot_Ihl),
+    .src01_slot                  (rs01_rt_slot_Ihl),
+    .src10_slot                  (rs10_rt_slot_Ihl),
+    .src11_slot                  (rs11_rt_slot_Ihl)
   );
 
   //----------------------------------------------------------------------
@@ -1386,6 +1427,8 @@ module riscv_CoreCtrl
   wire bltu_taken_X0hl = ( ( br_sel_X0hl == br_bltu) && branch_cond_ltu_X0hl);
   wire bge_taken_X0hl  = ( ( br_sel_X0hl == br_bge ) && branch_cond_ge_X0hl );
   wire bgeu_taken_X0hl = ( ( br_sel_X0hl == br_bgeu) && branch_cond_geu_X0hl);
+
+  wire brj_resolved_X0hl = ( inst_val_X0hl && (br_sel_X0hl != br_none) );
 
 
   wire any_br_taken_X0hl
