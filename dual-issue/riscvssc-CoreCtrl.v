@@ -243,7 +243,6 @@ module riscv_CoreCtrl
       ir0_Dhl    <= imemresp0_queue_mux_out_Fhl;
       ir1_Dhl    <= imemresp1_queue_mux_out_Fhl;
 
-      // bubble_Dhl <= bubble_next_Fhl && !squash_first_D_inst;
       bubble_Dhl <= bubble_next_Fhl;
     end
 
@@ -680,6 +679,157 @@ module riscv_CoreCtrl
   wire [11:0] csr1_addr_Dhl  = ir1_Dhl[31:20];
 
   //----------------------------------------------------------------------
+  // Decode Stage: Reorder Buffer Logic
+  //----------------------------------------------------------------------
+
+  wire rob_req_rdy_Dhl;
+
+  wire src00_renamed;
+  wire src01_renamed;
+  wire src10_renamed;
+  wire src11_renamed;
+
+  wire [4:0] src00_slot;
+  wire [4:0] src01_slot;
+  wire [4:0] src10_slot;
+  wire [4:0] src11_slot;
+
+  wire [4:0] rob_resp_slot_1;
+  wire [4:0] rob_resp_slot_2;
+
+  wire rob_commit_val_1;
+  wire rob_commit_val_2;
+
+  wire raw_hazard0_Dhl = ( inst_val_Dhl && rf0_wen_Dhl )
+                       && ( ( rf0_waddr_Dhl == rs10_addr_Dhl ) && rs10_en_Dhl );
+
+  wire raw_hazard1_Dhl = ( inst_val_Dhl && rf0_wen_Dhl )
+                       && ( ( rf0_waddr_Dhl == rs11_addr_Dhl ) && rs11_en_Dhl );
+
+  // Logic to mark instructions as speculative
+  reg spec_Dhl;
+  always @(posedge clk) begin
+    if( reset ) begin
+      spec_Dhl <= 1'b0;
+    end
+    else begin
+      // Set the speculative bit to 1 on the next cycle if a branch is in D,
+      // and the decode stage is not stalled
+      if( inst_val_Dhl &&
+        ( (br0_sel_Dhl && !squash_ir0_Dhl && !stall_agg_Dhl) ||
+          (br1_sel_Dhl && !stall_Dhl) )
+        ) begin
+        spec_Dhl <= 1'b1;
+      end
+    end
+  end
+  always @(*) begin
+    // The speculative bit should remain at 1 until the branch is resolved
+    if( inst_val_X0hl && brj_resolved_X0hl ) begin
+      spec_Dhl <= 1'b0;
+    end
+  end
+
+  // Handle the case of two branches in D at the same time
+  //    When D can issue, issue the first branch and squash it afterwards
+  //    Later allocate rob entry and issue the second instruction only
+  //    Senc information as to whether either instruction is squashed to I stage
+  reg squash_ir0_Dhl;
+  wire double_br_Dhl = br0_sel_Dhl && br1_sel_Dhl &&
+                      !squash_ir0_Dhl && inst_val_Dhl && !stall_agg_Dhl;
+
+  // Allocate the first entry if I isn't stalled and the instructions are valid.
+  // Allocate the second entry if the first is not a jump, and if it is not a
+  //    double branch case.
+  wire rob_req_val_1_Dhl = inst_val_Dhl && !stall_agg_Dhl && !squash_ir0_Dhl;
+  wire rob_req_val_2_Dhl = inst_val_Dhl && !stall_Dhl && !j0_en_Dhl && !double_br_Dhl;
+
+  wire rob_req_spec_1_Dhl = spec_Dhl;
+  wire rob_req_spec_2_Dhl = spec_Dhl || (br0_sel_Dhl != br_none && !squash_ir0_Dhl);
+
+  reg rs00_renamed_Dhl;
+  reg rs01_renamed_Dhl;
+  reg rs10_renamed_Dhl;
+  reg rs11_renamed_Dhl;
+
+  reg [4:0] rs00_rt_slot_Dhl;
+  reg [4:0] rs01_rt_slot_Dhl;
+  reg [4:0] rs10_rt_slot_Dhl;
+  reg [4:0] rs11_rt_slot_Dhl;
+
+  reg [4:0] rob_fill_slot_0_Dhl;
+  reg [4:0] rob_fill_slot_1_Dhl;
+
+  always @(*) begin
+    rs00_renamed_Dhl = src00_renamed;
+    rs01_renamed_Dhl = src01_renamed;
+    rs10_renamed_Dhl = src10_renamed;
+    rs11_renamed_Dhl = src11_renamed;
+
+    rs00_rt_slot_Dhl = src00_slot;
+    rs01_rt_slot_Dhl = src01_slot;
+    rs10_rt_slot_Dhl = src10_slot;
+    rs11_rt_slot_Dhl = src11_slot;
+
+    rob_fill_slot_0_Dhl = rob_resp_slot_1;
+    rob_fill_slot_1_Dhl = rob_resp_slot_2;
+  end
+
+  riscv_CoreReorderBuffer rob
+  (
+    .clk                         (clk),
+    .reset                       (reset),
+
+    .brj_taken_X0hl              (brj_taken_X0hl),
+    .brj_resolved_X0hl           (brj_resolved_X0hl),
+
+    .rob_alloc_req_rdy           (rob_req_rdy_Dhl),
+
+    .rob_alloc_req_val_1         (rob_req_val_1_Dhl),
+    .rob_alloc_req_wen_1         (rf0_wen_Dhl),
+    .rob_alloc_req_spec_1        (rob_req_spec_1_Dhl),
+    .rob_alloc_req_preg_1        (rf0_waddr_Dhl),
+    .rob_fill_val_1              (rob_fill_val_A_Whl),
+    .rob_fill_slot_1             (rob_fill_slot_A_Whl),
+    .rob_commit_slot_1           (rob_commit_slot_1_Chl),
+    .rob_commit_wen_1            (rob_commit_wen_1_Chl),
+    .rob_commit_rf_waddr_1       (rob_commit_waddr_1_Chl),
+    .rob_commit_val_1            (rob_commit_val_1),
+
+    .rob_alloc_req_val_2         (rob_req_val_2_Dhl),
+    .rob_alloc_req_wen_2         (rf1_wen_Dhl),
+    .rob_alloc_req_spec_2        (rob_req_spec_2_Dhl),
+    .rob_alloc_req_preg_2        (rf1_waddr_Dhl),
+    .rob_fill_val_2              (rob_fill_val_B_Whl),
+    .rob_fill_slot_2             (rob_fill_slot_B_Whl),
+    .rob_commit_slot_2           (rob_commit_slot_2_Chl),
+    .rob_commit_wen_2            (rob_commit_wen_2_Chl),
+    .rob_commit_rf_waddr_2       (rob_commit_waddr_2_Chl),
+    .rob_commit_val_2            (rob_commit_val_2),
+
+    .rob_alloc_resp_slot_1       (rob_resp_slot_1),
+    .rob_alloc_resp_slot_2       (rob_resp_slot_2),
+
+    .raw_hazard0                 (raw_hazard0_Dhl),
+    .raw_hazard1                 (raw_hazard1_Dhl),
+
+    .src00                       (rs00_addr_Dhl),
+    .src01                       (rs01_addr_Dhl),
+    .src10                       (rs10_addr_Dhl),
+    .src11                       (rs11_addr_Dhl),
+
+    .src00_renamed               (src00_renamed),
+    .src01_renamed               (src01_renamed),
+    .src10_renamed               (src10_renamed),
+    .src11_renamed               (src11_renamed),
+
+    .src00_slot                  (src00_slot),
+    .src01_slot                  (src01_slot),
+    .src10_slot                  (src10_slot),
+    .src11_slot                  (src11_slot)
+  );
+
+  //----------------------------------------------------------------------
   // Decode Stage: Stall Logic
   //----------------------------------------------------------------------
 
@@ -690,13 +840,19 @@ module riscv_CoreCtrl
     = ( inst_val_Ihl && brj_taken_Ihl )
    || ( inst_val_X0hl && brj_taken_X0hl );
 
-  // Stall in D if I is stalled
+  // Stall in D if the ROB is full, if a second branch is seen before the first
+  // resolved, or if I is stalled
+  wire stall_rob_Dhl = !rob_req_rdy_Dhl;
 
-  assign stall_Dhl = stall_Ihl;
+  wire stall_br_Dhl = spec_Dhl && (br0_sel_Dhl || br1_sel_Dhl);
+
+  wire stall_agg_Dhl = stall_Ihl || ( (stall_rob_Dhl || stall_br_Dhl) && inst_val_Dhl);
+
+  wire stall_Dhl = stall_agg_Dhl || double_br_Dhl;
 
   // Next bubble bit
-
-  wire bubble_sel_Dhl  = ( squash_Dhl || stall_Dhl );
+  // Send a bubble bit if no ROB entries are allocated
+  wire bubble_sel_Dhl  = ( !rob_req_val_1_Dhl && !rob_req_val_2_Dhl );
   wire bubble_next_Dhl = ( !bubble_sel_Dhl ) ? bubble_Dhl
                        : ( bubble_sel_Dhl )  ? 1'b1
                        :                       1'bx;
@@ -708,6 +864,7 @@ module riscv_CoreCtrl
   reg         bubble_Ihl;
 
   reg [31:0]  ir0_Ihl;
+  reg         ir0_squashed_Ihl;
   reg         rf0_wen_Ihl;
   reg  [4:0]  rf0_waddr_Ihl;
   reg  [3:0]  alu0_fn_Ihl;
@@ -727,6 +884,7 @@ module riscv_CoreCtrl
   reg [11:0]  csr0_addr_Ihl;
 
   reg [31:0]  ir1_Ihl;
+  reg         ir1_squashed_Ihl;
   reg         rf1_wen_Ihl;
   reg  [4:0]  rf1_waddr_Ihl;
   reg  [3:0]  alu1_fn_Ihl;
@@ -753,6 +911,21 @@ module riscv_CoreCtrl
   reg         rs01_en_Ihl;
   reg         rs10_en_Ihl;
   reg         rs11_en_Ihl;
+  reg  [4:0]  rob_fill_slot_0_Ihl;
+  reg  [4:0]  rob_fill_slot_1_Ihl;
+  reg         rob_fill_val_0_Ihl;
+  reg         rob_fill_val_1_Ihl;
+  reg         spec_0_Ihl;
+  reg         spec_1_Ihl;
+
+  reg         rs00_renamed_Ihl;
+  reg         rs01_renamed_Ihl;
+  reg         rs10_renamed_Ihl;
+  reg         rs11_renamed_Ihl;
+  reg  [4:0]  rs00_rt_slot_Ihl;
+  reg  [4:0]  rs01_rt_slot_Ihl;
+  reg  [4:0]  rs10_rt_slot_Ihl;
+  reg  [4:0]  rs11_rt_slot_Ihl;
 
   reg  [1:0]  op00_mux_sel_Ihl;
   reg  [2:0]  op01_mux_sel_Ihl;
@@ -761,10 +934,12 @@ module riscv_CoreCtrl
 
   always @ (posedge clk) begin
     if( reset ) begin
-      bubble_Ihl <= 1'b1;
+      bubble_Ihl      <= 1'b1;
+      squash_ir0_Dhl  <= 1'b0;
     end
     else if( !stall_Ihl ) begin
       ir0_Ihl               <= ir0_Dhl;
+      ir0_squashed_Ihl      <= !rob_req_val_1_Dhl;
       rf0_wen_Ihl           <= rf0_wen_Dhl;
       rf0_waddr_Ihl         <= rf0_waddr_Dhl;
       alu0_fn_Ihl           <= alu0_fn_Dhl;
@@ -784,6 +959,7 @@ module riscv_CoreCtrl
       csr0_addr_Ihl         <= csr0_addr_Dhl;
 
       ir1_Ihl               <= ir1_Dhl;
+      ir1_squashed_Ihl      <= !rob_req_val_2_Dhl;
       rf1_wen_Ihl           <= rf1_wen_Dhl;
       rf1_waddr_Ihl         <= rf1_waddr_Dhl;
       alu1_fn_Ihl           <= alu1_fn_Dhl;
@@ -810,19 +986,34 @@ module riscv_CoreCtrl
       rs01_en_Ihl           <= rs01_en_Dhl;
       rs10_en_Ihl           <= rs10_en_Dhl;
       rs11_en_Ihl           <= rs11_en_Dhl;
+      rob_fill_slot_0_Ihl   <= rob_fill_slot_0_Dhl;
+      rob_fill_slot_1_Ihl   <= rob_fill_slot_1_Dhl;
+      spec_0_Ihl            <= rob_req_spec_1_Dhl;
+      spec_1_Ihl            <= rob_req_spec_2_Dhl;
+
+      rs00_renamed_Ihl      <= rs00_renamed_Dhl;
+      rs01_renamed_Ihl      <= rs01_renamed_Dhl;
+      rs10_renamed_Ihl      <= rs10_renamed_Dhl;
+      rs11_renamed_Ihl      <= rs11_renamed_Dhl;
+      rs00_rt_slot_Ihl      <= rs00_rt_slot_Dhl;
+      rs01_rt_slot_Ihl      <= rs01_rt_slot_Dhl;
+      rs10_rt_slot_Ihl      <= rs10_rt_slot_Dhl;
+      rs11_rt_slot_Ihl      <= rs11_rt_slot_Dhl;
 
       op00_mux_sel_Ihl      <= op00_mux_sel_Dhl;
       op01_mux_sel_Ihl      <= op01_mux_sel_Dhl;
       op10_mux_sel_Ihl      <= op10_mux_sel_Dhl;
       op11_mux_sel_Ihl      <= op11_mux_sel_Dhl;
 
-      bubble_Ihl <= bubble_next_Dhl && !squash_first_I_inst_Ihl;
-    end
-
-    // Always send a bubble to the decode stage if a branch or jump is taken
-    if( brj_taken_Ihl || brj_taken_X0hl ) begin
       bubble_Ihl <= bubble_next_Dhl;
-    end  
+
+      if( double_br_Dhl ) begin
+        squash_ir0_Dhl  <= 1'b1;
+      end
+      else if( !stall_Dhl ) begin
+        squash_ir0_Dhl  <= 1'b0;
+      end
+    end
   end
 
   // Is the current stage valid?
@@ -842,8 +1033,8 @@ module riscv_CoreCtrl
   wire       brj0_taken_Ihl = ( inst_val_Ihl && j0_en_Ihl );
   wire       brj1_taken_Ihl = ( inst_val_Ihl && j1_en_Ihl );
 
-  wire       brj_taken_Ihl  = ( !steering_mux_sel_Ihl ) ? brj0_taken_Ihl && !stall_X0hl
-                            : (  steering_mux_sel_Ihl ) ? brj1_taken_Ihl && !stall_X0hl
+  wire       brj_taken_Ihl  = ( !steering_mux_sel_Ihl ) ? brj0_taken_Ihl && ir0_issued_Ihl
+                            : (  steering_mux_sel_Ihl ) ? brj1_taken_Ihl && ir1_issued_Ihl
                             :                           1'bx;
 
   //----------------------------------------------------------------------
@@ -856,6 +1047,7 @@ module riscv_CoreCtrl
   reg  [3:0] aluA_fn_Ihl;
   reg  [4:0] rob_fill_slot_A_Ihl;
   reg        rob_fill_val_A_Ihl;
+  reg        spec_A_Ihl;
 
   reg [31:0] irB_Ihl;
   reg        rfB_wen_Ihl;
@@ -863,6 +1055,7 @@ module riscv_CoreCtrl
   reg  [3:0] aluB_fn_Ihl;
   reg  [4:0] rob_fill_slot_B_Ihl;
   reg        rob_fill_val_B_Ihl;
+  reg        spec_B_Ihl;
 
   reg  [2:0] br_sel_Ihl;
   reg        muldivreq_val_Ihl;
@@ -887,21 +1080,17 @@ module riscv_CoreCtrl
   // and the write destination is the same as a source register being
   // used for instruction 1.
 
-  wire stall_1_RAW_Ihl        = ( inst_val_Ihl && rf0_wen_Ihl )
-                             && ( 
-                                  ( ( rf0_waddr_Ihl == rs10_addr_Ihl ) && rs10_en_Ihl )
-                               || ( ( rf0_waddr_Ihl == rs11_addr_Ihl ) && rs11_en_Ihl )
-                                )
-                             && ( !squash_first_I_inst_Ihl );
+  wire ir0_squash_total_Ihl = squash_first_I_inst_Ihl || ir0_squashed_Ihl;
 
-  // A WAW hazard exists if both instructions write the same register.
+  wire stall_1_RAW0_Ihl        = ( inst_val_Ihl && rf0_wen_Ihl )
+                             && ( ( rf0_waddr_Ihl == rs10_addr_Ihl ) && rs10_en_Ihl )
+                             && ( !ir0_squash_total_Ihl )
+                             && ( !ir1_squashed_Ihl );
 
-  wire stall_1_WAW_Ihl        = ( inst_val_Ihl && rf0_wen_Ihl && rf1_wen_Ihl )
-                             && ( rf0_waddr_Ihl == rf1_waddr_Ihl)
-                             && ( !squash_first_I_inst_Ihl );
-
-  // WAW hazards are handled by the reorder buffer
-  // wire stall_1_WAW_Ihl = 1'b0;
+  wire stall_1_RAW1_Ihl        = ( inst_val_Ihl && rf0_wen_Ihl )
+                             && ( ( rf0_waddr_Ihl == rs11_addr_Ihl ) && rs11_en_Ihl )
+                             && ( !ir0_squash_total_Ihl )
+                             && ( !ir1_squashed_Ihl );
 
   // A structural hazard exists if both instructions are not simple
   // ALU instructions. Alternatively, both instructions are loads, stores,
@@ -927,15 +1116,7 @@ module riscv_CoreCtrl
 
   // Aggregate hazards for steering instruction 1
 
-  wire stall_1_steer_Ihl = ( stall_1_RAW_Ihl || stall_1_WAW_Ihl || stall_1_structural_Ihl );
-  reg stall_1_no_spec_Ihl;
-  always @(*) begin
-    if ( br0_sel_Ihl ) begin
-      stall_1_no_spec_Ihl = !squash_first_I_inst_Ihl && inst_val_Ihl;
-    end
-    else stall_1_no_spec_Ihl = 1'b0;
-  end
-  // wire stall_1_no_spec_Ihl = 1'b0;
+  wire stall_1_steer_Ihl = ( stall_1_RAW0_Ihl || stall_1_RAW1_Ihl || stall_1_structural_Ihl );
 
   // Signals to indicate when both instructions are issued, or if only
   // instruction 0 was issued
@@ -951,15 +1132,15 @@ module riscv_CoreCtrl
 
   always @(*) begin
 
-    // If the first instruction was already issued, steer the second
+    // If the first instruction was already issued or squashed, steer the second
     // into pipeline A.
-    if( squash_first_I_inst_Ihl ) begin
+    if( ir0_squash_total_Ihl ) begin
       steer_signal_Ihl = 1'b1;
     end
 
     // If the second instruction requires A, and the first does not,
     // steer the second to A.
-    else if ( !reqA_0_Ihl && reqA_1_Ihl && !stall_1_Ihl ) begin
+    else if ( !reqA_0_Ihl && reqA_1_Ihl && !stall_1_Ihl && !ir1_squashed_Ihl ) begin
       steer_signal_Ihl = 1'b1;
     end
 
@@ -1003,20 +1184,20 @@ module riscv_CoreCtrl
     : ( steering_mux_sel_Ihl == 1'b1 ) ? op01_mux_sel_Ihl
     :                                    2'bx;
   assign opA0_byp_rob_slot_Ihl
-    = ( steering_mux_sel_Ihl == 1'b0 ) ? op00_byp_rob_slot_Ihl
-    : ( steering_mux_sel_Ihl == 1'b1 ) ? op10_byp_rob_slot_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? rs00_rt_slot_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? rs10_rt_slot_Ihl
     :                                    5'bx;
   assign opA1_byp_rob_slot_Ihl
-    = ( steering_mux_sel_Ihl == 1'b0 ) ? op01_byp_rob_slot_Ihl
-    : ( steering_mux_sel_Ihl == 1'b1 ) ? op11_byp_rob_slot_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? rs01_rt_slot_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? rs11_rt_slot_Ihl
     :                                    5'bx;
   assign opB0_byp_rob_slot_Ihl
-    = ( steering_mux_sel_Ihl == 1'b0 ) ? op10_byp_rob_slot_Ihl
-    : ( steering_mux_sel_Ihl == 1'b1 ) ? op00_byp_rob_slot_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? rs10_rt_slot_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? rs00_rt_slot_Ihl
     :                                    5'bx;
   assign opB1_byp_rob_slot_Ihl
-    = ( steering_mux_sel_Ihl == 1'b0 ) ? op11_byp_rob_slot_Ihl
-    : ( steering_mux_sel_Ihl == 1'b1 ) ? op01_byp_rob_slot_Ihl
+    = ( steering_mux_sel_Ihl == 1'b0 ) ? rs11_rt_slot_Ihl
+    : ( steering_mux_sel_Ihl == 1'b1 ) ? rs01_rt_slot_Ihl
     :                                    5'bx;
 
   always @(*) begin
@@ -1028,6 +1209,7 @@ module riscv_CoreCtrl
       rfA_waddr_Ihl        = rf0_waddr_Ihl;
       aluA_fn_Ihl          = alu0_fn_Ihl;
       rob_fill_slot_A_Ihl  = rob_fill_slot_0_Ihl;
+      spec_A_Ihl           = spec_0_Ihl;
 
       br_sel_Ihl           = br0_sel_Ihl;
       muldivreq_val_Ihl    = muldivreq0_val_Ihl;
@@ -1053,17 +1235,14 @@ module riscv_CoreCtrl
 
       // Issue ir1 to B if ir1, ir0, and X0 are not stalled and if
       // ir0 is not a jump instruction
-      //----------------------------------------------------------------------
-      // ALSO IF ir0 IS NOT A BRANCH ----> DISALLOWING SPECULATION
-      //----------------------------------------------------------------------
-      if( !stall_1_Ihl && !stall_0_Ihl && !brj_taken_Ihl ) begin
-      // if( !stall_1_Ihl && !stall_0_Ihl ) begin
+      if( !stall_1_Ihl && !stall_0_Ihl && !brj_taken_Ihl && !ir1_squashed_Ihl ) begin
         irB_Ihl              = ir1_Ihl;
         rfB_wen_Ihl          = rf1_wen_Ihl;
         rfB_waddr_Ihl        = rf1_waddr_Ihl;
         aluB_fn_Ihl          = alu1_fn_Ihl;
         rob_fill_slot_B_Ihl  = rob_fill_slot_1_Ihl;
         rob_fill_val_B_Ihl   = 1'b1;
+        spec_B_Ihl           = spec_1_Ihl;
 
         ir1_issued_Ihl       = 1'b1;
       end
@@ -1087,6 +1266,7 @@ module riscv_CoreCtrl
       rfA_waddr_Ihl        = rf1_waddr_Ihl;
       aluA_fn_Ihl          = alu1_fn_Ihl;
       rob_fill_slot_A_Ihl  = rob_fill_slot_1_Ihl;
+      spec_A_Ihl           = spec_1_Ihl;
 
       br_sel_Ihl           = br1_sel_Ihl;
       aluA_fn_Ihl          = alu1_fn_Ihl;
@@ -1114,12 +1294,13 @@ module riscv_CoreCtrl
       end
 
       // If ir0 has not been issued, send it to path B
-      if( !squash_first_I_inst_Ihl ) begin
+      if( !ir0_squash_total_Ihl ) begin
         irB_Ihl              = ir0_Ihl;
         rfB_wen_Ihl          = rf0_wen_Ihl;
         rfB_waddr_Ihl        = rf0_waddr_Ihl;
         aluB_fn_Ihl          = alu0_fn_Ihl;
         rob_fill_slot_B_Ihl  = rob_fill_slot_0_Ihl;
+        spec_B_Ihl           = spec_0_Ihl;
 
         ir0_issued_Ihl       = 1'b1;
         rob_fill_val_B_Ihl   = 1'b1;
@@ -1159,11 +1340,6 @@ module riscv_CoreCtrl
   wire [3:0] op10_byp_mux_sel_Ihl;
   wire [3:0] op11_byp_mux_sel_Ihl;
 
-  wire [4:0] op00_byp_rob_slot_Ihl = rs00_rt_slot_Ihl;
-  wire [4:0] op01_byp_rob_slot_Ihl = rs01_rt_slot_Ihl;
-  wire [4:0] op10_byp_rob_slot_Ihl = rs10_rt_slot_Ihl;
-  wire [4:0] op11_byp_rob_slot_Ihl = rs11_rt_slot_Ihl;
-
   riscv_CoreScoreboard scoreboard
   (
     .clk                (clk),
@@ -1201,9 +1377,9 @@ module riscv_CoreCtrl
     .stall_Whl          (stall_Whl),
 
     .rob_commit_slot_1  (rob_commit_slot_1_Chl),
-    .rob_commit_wen_1   (rob_commit_wen_1_Chl),
+    .rob_commit_val_1   (rob_commit_val_1),
     .rob_commit_slot_2  (rob_commit_slot_2_Chl),
-    .rob_commit_wen_2   (rob_commit_wen_2_Chl),
+    .rob_commit_val_2   (rob_commit_val_2),
 
     .stall_ir0          (stall_0_sb_Ihl),
     .stall_ir1          (stall_1_sb_Ihl),
@@ -1212,85 +1388,6 @@ module riscv_CoreCtrl
     .op01_byp_mux_sel   (op01_byp_mux_sel_Ihl),
     .op10_byp_mux_sel   (op10_byp_mux_sel_Ihl),
     .op11_byp_mux_sel   (op11_byp_mux_sel_Ihl)
-
-    // .op00_byp_rob_slot  (op00_byp_rob_slot_Ihl),
-    // .op01_byp_rob_slot  (op01_byp_rob_slot_Ihl),
-    // .op10_byp_rob_slot  (op10_byp_rob_slot_Ihl),
-    // .op11_byp_rob_slot  (op11_byp_rob_slot_Ihl)
-  );
-
-  //----------------------------------------------------------------------
-  // Reorder Buffer Logic
-  //----------------------------------------------------------------------
-
-  wire rob_req_rdy_Ihl;
-
-  wire [4:0]  rob_fill_slot_0_Ihl;
-  wire [4:0]  rob_fill_slot_1_Ihl;
-
-  wire rob_req_spec_1 = 1'b0;
-  wire rob_req_spec_2 = 1'b0;
-  // wire rob_req_spec_2 = inst_val_Ihl && !squash_first_I_inst_Ihl && br0_sel_Ihl;
-
-  wire rob_req_val_1_Ihl = ir0_issued_Ihl;
-  wire rob_req_val_2_Ihl = ir1_issued_Ihl;
-
-  wire rs00_renamed_Ihl;
-  wire rs01_renamed_Ihl;
-  wire rs10_renamed_Ihl;
-  wire rs11_renamed_Ihl;
-
-  wire [4:0] rs00_rt_slot_Ihl;
-  wire [4:0] rs01_rt_slot_Ihl;
-  wire [4:0] rs10_rt_slot_Ihl;
-  wire [4:0] rs11_rt_slot_Ihl;
-
-  riscv_CoreReorderBuffer rob
-  (
-    .clk                         (clk),
-    .reset                       (reset),
-
-    .brj_taken_X0hl              (brj_taken_X0hl),
-    .brj_resolved_X0hl           (brj_resolved_X0hl),
-
-    .rob_alloc_req_rdy           (rob_req_rdy_Ihl),
-
-    .rob_alloc_req_val_1         (rob_req_val_1_Ihl),
-    .rob_alloc_req_wen_1         (rf0_wen_Ihl),
-    .rob_alloc_req_spec_1        (rob_req_spec_1),
-    .rob_alloc_req_preg_1        (rf0_waddr_Ihl),
-    .rob_alloc_resp_slot_1       (rob_fill_slot_0_Ihl),
-    .rob_fill_val_1              (rob_fill_val_A_Whl),
-    .rob_fill_slot_1             (rob_fill_slot_A_Whl),
-    .rob_commit_slot_1           (rob_commit_slot_1_Chl),
-    .rob_commit_wen_1            (rob_commit_wen_1_Chl),
-    .rob_commit_rf_waddr_1       (rob_commit_waddr_1_Chl),
-
-    .rob_alloc_req_val_2         (rob_req_val_2_Ihl),
-    .rob_alloc_req_wen_2         (rf1_wen_Ihl),
-    .rob_alloc_req_spec_2        (rob_req_spec_2),
-    .rob_alloc_req_preg_2        (rf1_waddr_Ihl),
-    .rob_alloc_resp_slot_2       (rob_fill_slot_1_Ihl),
-    .rob_fill_val_2              (rob_fill_val_B_Whl),
-    .rob_fill_slot_2             (rob_fill_slot_B_Whl),
-    .rob_commit_slot_2           (rob_commit_slot_2_Chl),
-    .rob_commit_wen_2            (rob_commit_wen_2_Chl),
-    .rob_commit_rf_waddr_2       (rob_commit_waddr_2_Chl),
-
-    .src00                       (rs00_addr_Ihl),
-    .src01                       (rs01_addr_Ihl),
-    .src10                       (rs10_addr_Ihl),
-    .src11                       (rs11_addr_Ihl),
-
-    .src00_renamed               (rs00_renamed_Ihl),
-    .src01_renamed               (rs01_renamed_Ihl),
-    .src10_renamed               (rs10_renamed_Ihl),
-    .src11_renamed               (rs11_renamed_Ihl),
-
-    .src00_slot                  (rs00_rt_slot_Ihl),
-    .src01_slot                  (rs01_rt_slot_Ihl),
-    .src10_slot                  (rs10_rt_slot_Ihl),
-    .src11_slot                  (rs11_rt_slot_Ihl)
   );
 
   //----------------------------------------------------------------------
@@ -1301,13 +1398,12 @@ module riscv_CoreCtrl
   wire squash_Ihl = ( inst_val_X0hl && brj_taken_X0hl );
 
   // Aggregate Stall Signal
-  wire stall_0_Ihl = ( stall_0_sb_Ihl && !squash_first_I_inst_Ihl )
-                      || !rob_req_rdy_Ihl;
-  wire stall_1_Ihl = ( stall_1_sb_Ihl || stall_1_steer_Ihl  || stall_1_no_spec_Ihl )
-                      || !rob_req_rdy_Ihl;
+  wire stall_0_Ihl = ( stall_0_sb_Ihl && !ir0_squash_total_Ihl );
 
-  wire stall_Ihl   = ( stall_X0hl )
-                      || ( ( stall_0_Ihl || stall_1_Ihl ) && !brj_taken_Ihl && !brj_taken_X0hl );
+  wire stall_1_Ihl = ( stall_1_sb_Ihl || stall_1_steer_Ihl && !ir1_squashed_Ihl );
+
+  wire stall_Ihl   = ( stall_X0hl || stall_0_Ihl || stall_1_Ihl )
+                   && !brj_taken_Ihl && !brj_taken_X0hl;
 
   // Send a bubble to the next stage if either ir0 is valid and stalled,
   // or if ir0 is invalid and i1 is stalled
@@ -1327,6 +1423,7 @@ module riscv_CoreCtrl
   reg  [4:0] rfA_waddr_X0hl;
   reg  [4:0] rob_fill_slot_A_X0hl;
   reg        rob_fill_val_A_X0hl;
+  reg        spec_A_X0hl;
 
   reg [31:0] irB_X0hl;
   reg  [3:0] aluB_fn_X0hl;
@@ -1334,6 +1431,7 @@ module riscv_CoreCtrl
   reg  [4:0] rfB_waddr_X0hl;
   reg  [4:0] rob_fill_slot_B_X0hl;
   reg        rob_fill_val_B_X0hl;
+  reg        spec_B_X0hl;
 
   reg  [2:0] br_sel_X0hl;
   reg        muldivreq_val_X0hl;
@@ -1364,6 +1462,7 @@ module riscv_CoreCtrl
       rfA_waddr_X0hl        <= rfA_waddr_Ihl;
       rob_fill_slot_A_X0hl  <= rob_fill_slot_A_Ihl;
       rob_fill_val_A_X0hl   <= rob_fill_val_A_Ihl && !bubble_next_Ihl;
+      spec_A_X0hl           <= spec_A_Ihl;
 
       irB_X0hl              <= irB_Ihl;
       aluB_fn_X0hl          <= aluB_fn_Ihl;
@@ -1371,6 +1470,7 @@ module riscv_CoreCtrl
       rfB_waddr_X0hl        <= rfB_waddr_Ihl;
       rob_fill_slot_B_X0hl  <= rob_fill_slot_B_Ihl;
       rob_fill_val_B_X0hl   <= rob_fill_val_B_Ihl && !bubble_next_Ihl;
+      spec_B_X0hl           <= spec_B_Ihl;
 
       br_sel_X0hl           <= br_sel_Ihl;
       muldivreq_val_X0hl    <= muldivreq_val_Ihl;
@@ -1390,8 +1490,7 @@ module riscv_CoreCtrl
       // Squash the first I instruction if only instruction 0 is issued
       // and it is not a jump
 
-      if( ir0_issued_Ihl && !ir1_issued_Ihl && !squash_first_I_inst_Ihl
-          && !brj_taken_Ihl ) begin
+      if( ir0_issued_Ihl && !ir1_issued_Ihl && !brj_taken_Ihl ) begin
         squash_first_I_inst_Ihl <= 1'b1;
       end
       else if( ir1_issued_Ihl || brj_taken_Ihl || brj_taken_X0hl ) begin
@@ -1413,7 +1512,7 @@ module riscv_CoreCtrl
   assign muldivreq_val = muldivreq_val_Ihl && inst_val_Ihl && (!stall_X0hl);
   assign muldivresp_rdy = !stall_X3hl;
 
-  // Only send a valid dmem request if not stalled
+  // Only send a valid dmem request if not stalled and not speculative
 
   assign dmemreq_msg_rw  = dmemreq_msg_rw_X0hl;
   assign dmemreq_msg_len = dmemreq_msg_len_X0hl;
@@ -1428,7 +1527,7 @@ module riscv_CoreCtrl
   wire bge_taken_X0hl  = ( ( br_sel_X0hl == br_bge ) && branch_cond_ge_X0hl );
   wire bgeu_taken_X0hl = ( ( br_sel_X0hl == br_bgeu) && branch_cond_geu_X0hl);
 
-  wire brj_resolved_X0hl = ( inst_val_X0hl && (br_sel_X0hl != br_none) );
+  wire brj_resolved_X0hl = ( inst_val_X0hl && (br_sel_X0hl != br_none) && !stall_X0hl );
 
 
   wire any_br_taken_X0hl
@@ -1439,7 +1538,7 @@ module riscv_CoreCtrl
    ||   bge_taken_X0hl
    ||   bgeu_taken_X0hl );
 
-  wire brj_taken_X0hl = ( inst_val_X0hl && any_br_taken_X0hl );
+  wire brj_taken_X0hl = ( inst_val_X0hl && any_br_taken_X0hl && !stall_X0hl );
 
   // Dummy Squash Signal
 

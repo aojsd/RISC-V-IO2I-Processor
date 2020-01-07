@@ -13,6 +13,8 @@ module riscv_CoreReorderBuffer
   input         brj_taken_X0hl,
   input         brj_resolved_X0hl,
 
+  output        rob_alloc_req_rdy,
+
   input         rob_alloc_req_val_1,
   input         rob_alloc_req_wen_1,
   input         rob_alloc_req_spec_1,
@@ -22,11 +24,6 @@ module riscv_CoreReorderBuffer
   input         rob_alloc_req_spec_2,
   input   [4:0] rob_alloc_req_preg_2,
 
-  output        rob_alloc_req_rdy,
-  
-  output  [4:0] rob_alloc_resp_slot_1,
-  output  [4:0] rob_alloc_resp_slot_2,
-
   input         rob_fill_val_1,
   input   [4:0] rob_fill_slot_1,
   input         rob_fill_val_2,
@@ -35,9 +32,17 @@ module riscv_CoreReorderBuffer
   output        rob_commit_wen_1,
   output  [4:0] rob_commit_slot_1,
   output  [4:0] rob_commit_rf_waddr_1,
+  output        rob_commit_val_1,
   output        rob_commit_wen_2,
   output  [4:0] rob_commit_slot_2,
   output  [4:0] rob_commit_rf_waddr_2,
+  output        rob_commit_val_2,
+
+  output  [4:0] rob_alloc_resp_slot_1,
+  output  [4:0] rob_alloc_resp_slot_2,
+
+  input         raw_hazard0,
+  input         raw_hazard1,
 
   input   [4:0] src00,
   input   [4:0] src01,
@@ -103,8 +108,8 @@ module riscv_CoreReorderBuffer
       rob_entry_allocated_1 <= 1'b0;
       rob_entry_allocated_2 <= 1'b0;
 
-      rob_entry_committed_1 <= 1'b0;
-      rob_entry_committed_2 <= 1'b0;
+      rob_commit_val_1 <= 1'b0;
+      rob_commit_val_2 <= 1'b0;
 
       for (i = 0; i < 32; i = i + 1) begin
         rob_valid[i]    <= 1'b0;
@@ -233,8 +238,8 @@ module riscv_CoreReorderBuffer
   // should be set before the end of the clock cycle, but the head pointer
   // can be iterated at the next clock edge.
 
-  reg rob_entry_committed_1;
-  reg rob_entry_committed_2;
+  reg rob_commit_val_1;
+  reg rob_commit_val_2;
 
   always @(*) begin
 
@@ -255,16 +260,16 @@ module riscv_CoreReorderBuffer
           rob_commit_rf_waddr_2 = rob_preg[rob_head_next];
           rob_commit_wen_2      = rob_wen[rob_head_next];
 
-          rob_entry_committed_1 = 1'b1;
-          rob_entry_committed_2 = 1'b1;            
+          rob_commit_val_1 = 1'b1;
+          rob_commit_val_2 = 1'b1;            
       end
       else begin
         rob_commit_slot_2     = 5'b0;
         rob_commit_rf_waddr_2 = 5'b0;
         rob_commit_wen_2      = 1'b0;
 
-        rob_entry_committed_1 = 1'b1;
-        rob_entry_committed_2 = 1'b0;
+        rob_commit_val_1 = 1'b1;
+        rob_commit_val_2 = 1'b0;
       end
     end
     else begin
@@ -276,20 +281,20 @@ module riscv_CoreReorderBuffer
       rob_commit_rf_waddr_2 = 5'b0;
       rob_commit_wen_2      = 1'b0;
 
-      rob_entry_committed_1 = 1'b0;
-      rob_entry_committed_2 = 1'b0;
+      rob_commit_val_1 = 1'b0;
+      rob_commit_val_2 = 1'b0;
     end
   end
 
   // Update head pointer and ROB state
   always @(posedge clk) begin
-    if(rob_entry_committed_2) begin
+    if(rob_commit_val_2) begin
       rob_valid[rob_head]       <= 1'b0;
       rob_valid[rob_head_next]  <= 1'b0;
 
       rob_head                <= rob_head + 2;
     end
-    else if(rob_entry_committed_1) begin
+    else if(rob_commit_val_1) begin
       rob_valid[rob_head] <= 1'b0;
 
       rob_head            <= rob_head + 1;
@@ -302,12 +307,15 @@ module riscv_CoreReorderBuffer
 
   // When the branch resolves, if it is not taken, unset speculative bits,
   // else disable speculative instructions from writing the register file.
+  // On a mispredict, set the pending bit of speculative instructions to 0
+  // so they can be immediately committed and removed.
 
   always @(posedge clk) begin
     if( brj_resolved_X0hl ) begin
       for( i = 0; i < 32; i = i + 1 ) begin
-        rob_wen[i]  = rob_wen[i] && !(rob_spec[i] && brj_taken_X0hl);
-        rob_spec[i] = rob_spec[i] && brj_taken_X0hl;
+        rob_wen[i]      = rob_wen[i] && !(rob_spec[i] && brj_taken_X0hl);
+        rob_spec[i]     = rob_spec[i] && brj_taken_X0hl;
+        rob_pending[i]  = rob_pending[i] && !(rob_spec[i] && brj_taken_X0hl);
       end
     end
   end
@@ -318,30 +326,28 @@ module riscv_CoreReorderBuffer
   //----------------------------------------------------------------------  
 
   reg [31:0] rt_renamed;
-  reg  [4:0] rt_rename_slot [31:0];
-
-  reg src00_renamed;
-  reg src01_renamed;
-  reg src10_renamed;
-  reg src11_renamed;
-
-  reg [4:0] src00_slot;
-  reg [4:0] src01_slot;
-  reg [4:0] src10_slot;
-  reg [4:0] src11_slot;
+  reg [31:0] spec_renamed;
+  reg  [4:0] rt_rename_slot   [31:0];
+  reg  [4:0] spec_rename_slot [31:0];
 
   // Reset
   always @ (posedge clk) begin
     if( reset ) begin
-      rt_renamed      <= 32'b0;
+      rt_renamed    <= 32'b0;
+      spec_renamed  <= 32'b0;
 
       for( i = 0; i < 32; i = i + 1 ) begin
-        rt_rename_slot[i]       <= 5'b0;
+        rt_rename_slot[i]   <= 5'b0;
+        spec_rename_slot[i] <= 5'b0;
       end
     end
   end
 
-  // Allocate rename table
+  //----------------------------------------------------------------------
+  // Rename Table Allocation
+  //----------------------------------------------------------------------
+
+  // Only rename if the instruction writes a register
   wire rt_entry_1 = rob_entry_allocated_1 && rob_alloc_req_wen_1
                   && rob_alloc_req_preg_1 != 5'b0;
   wire rt_entry_2 = rob_entry_allocated_2 && rob_alloc_req_wen_2
@@ -349,29 +355,63 @@ module riscv_CoreReorderBuffer
   always @ (posedge clk) begin
     if(rob_entry_allocated_1 && rob_entry_allocated_2) begin
       if(rob_alloc_req_wen_1 && rob_alloc_req_preg_1 != 5'b0) begin
-        rt_renamed[rob_alloc_req_preg_1]      <= 1'b1;
-        rt_rename_slot[rob_alloc_req_preg_1]  <= rob_tail;
+
+        // Check if the instruction is speculative
+        if(rob_alloc_req_spec_1) begin
+          spec_renamed[rob_alloc_req_preg_1]      <= 1'b1;
+          spec_rename_slot[rob_alloc_req_preg_1]  <= rob_tail;
+        end
+        else begin
+          rt_renamed[rob_alloc_req_preg_1]      <= 1'b1;
+          rt_rename_slot[rob_alloc_req_preg_1]  <= rob_tail;
+        end
       end
 
       if(rob_alloc_req_wen_2 && rob_alloc_req_preg_2 != 5'b0) begin
-        rt_renamed[rob_alloc_req_preg_2]      <= 1'b1;
-        rt_rename_slot[rob_alloc_req_preg_2]  <= rob_tail_next;
+
+        // Check if the instruction is speculative
+        if(rob_alloc_req_spec_2) begin
+          spec_renamed[rob_alloc_req_preg_2]      <= 1'b1;
+          spec_rename_slot[rob_alloc_req_preg_2]  <= rob_tail_next;
+        end
+        else begin
+          rt_renamed[rob_alloc_req_preg_2]      <= 1'b1;
+          rt_rename_slot[rob_alloc_req_preg_2]  <= rob_tail_next;
+        end
       end
     end
     else if(rt_entry_1) begin
-      rt_renamed[rob_alloc_req_preg_1]      <= 1'b1;
-      rt_rename_slot[rob_alloc_req_preg_1]  <= rob_tail;
+
+      // Check if the instruction is speculative
+      if(rob_alloc_req_spec_1) begin
+        spec_renamed[rob_alloc_req_preg_1]      <= 1'b1;
+        spec_rename_slot[rob_alloc_req_preg_1]  <= rob_tail;
+      end
+      else begin
+        rt_renamed[rob_alloc_req_preg_1]      <= 1'b1;
+        rt_rename_slot[rob_alloc_req_preg_1]  <= rob_tail;
+      end
     end
     else if(rt_entry_2) begin
-      rt_renamed[rob_alloc_req_preg_2]      <= 1'b1;
-      rt_rename_slot[rob_alloc_req_preg_2]  <= rob_tail;
+
+      // Check if the instruction is speculative
+      if(rob_alloc_req_spec_2) begin
+        spec_renamed[rob_alloc_req_preg_2]      <= 1'b1;
+        spec_rename_slot[rob_alloc_req_preg_2]  <= rob_tail;
+      end
+      else begin
+        rt_renamed[rob_alloc_req_preg_2]      <= 1'b1;
+        rt_rename_slot[rob_alloc_req_preg_2]  <= rob_tail;
+      end
     end
   end
 
-  // Free rename table
+  //----------------------------------------------------------------------
+  // Freeing the Rename Table
+  //----------------------------------------------------------------------
 
   always @ (posedge clk) begin
-    if(rob_entry_committed_1) begin
+    if(rob_commit_val_1) begin
       if( rt_rename_slot[rob_commit_rf_waddr_1] == rob_head ) begin
         // Check that the same architectural register isn't also being renamed
         if( !(rt_entry_1 && rob_commit_rf_waddr_1 == rob_alloc_req_preg_1) &&
@@ -380,7 +420,7 @@ module riscv_CoreReorderBuffer
         end
       end
     end
-    if(rob_entry_committed_2) begin
+    if(rob_commit_val_2) begin
       if( rt_rename_slot[rob_commit_rf_waddr_2] == rob_head_next ) begin
         // Check that the same architectural register isn't also being renamed
         if( !(rt_entry_1 && rob_commit_rf_waddr_2 == rob_alloc_req_preg_1) &&
@@ -391,18 +431,60 @@ module riscv_CoreReorderBuffer
     end
   end
 
-  // Rename source registers
-  always @(*) begin
-    src00_renamed = rt_renamed[src00];
-    src01_renamed = rt_renamed[src01];
-    src10_renamed = rt_renamed[src10];
-    src11_renamed = rt_renamed[src11];
+  //----------------------------------------------------------------------
+  // Renamed Source Registers
+  //----------------------------------------------------------------------
 
-    src00_slot = rt_rename_slot[src00];
-    src01_slot = rt_rename_slot[src01];
-    src10_slot = rt_rename_slot[src10];
-    src11_slot = rt_rename_slot[src11];
+  // First Allocation
+  assign src00_renamed = (rob_alloc_req_spec_1 && spec_renamed[src00]) ? 1'b1
+                       : rt_renamed[src00];
+  assign src01_renamed = (rob_alloc_req_spec_1 && spec_renamed[src01]) ? 1'b1
+                       : rt_renamed[src01];
+  assign src00_slot = (rob_alloc_req_spec_1 && spec_renamed[src00]) ? spec_rename_slot[src00]
+                    : rt_rename_slot[src00];
+  assign src01_slot = (rob_alloc_req_spec_1 && spec_renamed[src01]) ? spec_rename_slot[src01]
+                    : rt_rename_slot[src01];
+
+  assign src10_renamed = (raw_hazard0) ? 1'b1
+                       : (rob_alloc_req_spec_2 && spec_renamed[src10]) ? 1'b1
+                       : rt_renamed[src10];
+  assign src11_renamed = (raw_hazard1) ? 1'b1
+                       : (rob_alloc_req_spec_2 && spec_renamed[src11]) ? 1'b1
+                       : rt_renamed[src11];
+  assign src10_slot = (raw_hazard0) ? rob_tail
+                    : (rob_alloc_req_spec_2 && spec_renamed[src10]) ? spec_rename_slot[src10]
+                    : rt_rename_slot[src10];
+  assign src11_slot = (raw_hazard1) ? rob_tail
+                    : (rob_alloc_req_spec_2 && spec_renamed[src11]) ? spec_rename_slot[src11]
+                    : rt_rename_slot[src11];
+
+  //----------------------------------------------------------------------
+  // Rename Table Speculation
+  //----------------------------------------------------------------------
+
+  // If a branch resolves to taken, clear the speculative rename table.
+  // If it is not taken, set the non-speculative rename table equal the the
+  // speculative entries, then clear the speculative rename table.
+
+  always @(negedge clk) begin
+    if( brj_resolved_X0hl ) begin
+      for( i = 0; i < 32; i = i + 1 ) begin
+        if( spec_renamed[i] && !brj_taken_X0hl ) begin
+          rt_renamed[i]     = 1'b1;
+          rt_rename_slot[i] = spec_rename_slot[i];
+        end
+      end
+      spec_renamed = 32'b0;
+    end
   end
+
+  // initial begin
+  //   for(i = 0; i < 32; i = i + 1) begin
+  //     $dumpvars(0, rt_rename_slot[i]);
+  //     $dumpvars(0, spec_rename_slot[i]);
+  //   end
+  // end
+
 endmodule
 
 `endif

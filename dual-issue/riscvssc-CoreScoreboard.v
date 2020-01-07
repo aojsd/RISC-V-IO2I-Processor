@@ -42,9 +42,9 @@ module riscv_CoreScoreboard
   input         stall_Whl,
 
   input  [ 4:0] rob_commit_slot_1,  // First committed slot in the ROB
-  input         rob_commit_wen_1,   // Ensure ROB slot 1 is valid
+  input         rob_commit_val_1,   // Ensure ROB slot 1 is valid
   input  [ 4:0] rob_commit_slot_2,  // Second committed slot in the ROB
-  input         rob_commit_wen_2,   // Ensure ROB slot 2 is valid
+  input         rob_commit_val_2,   // Ensure ROB slot 2 is valid
 
   output        stall_ir0,        // Src0 stall signal from scoreboard
   output        stall_ir1,        // Src1 stall signal from scoreboard
@@ -60,7 +60,7 @@ module riscv_CoreScoreboard
   // output [ 4:0] op11_byp_rob_slot   // Ir1, src1 ROB slot
 );
 
-  // reg [31:0] pending;
+  reg [31:0] pending;
   reg [31:0] pipeline;
   reg [ 4:0] reg_latency  [31:0];
   reg [ 4:0] rob_slots    [31:0];
@@ -78,15 +78,15 @@ module riscv_CoreScoreboard
                         stall_X3hl,
                         stall_Whl};
 
-  wire [4:0] op00_byp_rob_slot = src00;
-  wire [4:0] op01_byp_rob_slot = src01;
-  wire [4:0] op10_byp_rob_slot = src10;
-  wire [4:0] op11_byp_rob_slot = src11;
+  // wire [4:0] op00_byp_rob_slot = src00;
+  // wire [4:0] op01_byp_rob_slot = src01;
+  // wire [4:0] op10_byp_rob_slot = src10;
+  // wire [4:0] op11_byp_rob_slot = src11;
 
   integer i;
   always @ ( posedge clk ) begin
     if ( reset ) begin
-      // pending  <= 32'b0;
+      pending  <= 32'b0;
       pipeline <= 32'b0;
 
       for(i = 0; i < 32; i = i + 1) begin
@@ -110,14 +110,14 @@ module riscv_CoreScoreboard
         if ( ir0_issued && dst0_en && ( i == dst0 ) ) begin
           reg_latency[i] <= 5'b10000;
           pipeline[i]    <= steer_signal;
-          // pending[i]     <= 1'b1;
+          pending[i]     <= 1'b1;
           func_unit[i]   <= func_ir0;
           rob_slots[i]   <= i;
         end
         else if ( ir1_issued && dst1_en && ( i == dst1 ) ) begin
           reg_latency[i] <= 5'b10000;
           pipeline[i]    <= !steer_signal;
-          // pending[i]     <= 1'b1;
+          pending[i]     <= 1'b1;
           func_unit[i]   <= func_ir1;
           rob_slots[i]   <= i;
         end
@@ -134,12 +134,12 @@ module riscv_CoreScoreboard
           reg_latency[i] <= ( reg_latency[i] & stalls ) |
                             ( ( reg_latency[i] & ~stalls ) >> 1 );
 
-          // if ( rob_commit_wen_1 && rob_commit_slot_1 == i ) begin
-          //   pending[i] <= 1'b0;
-          // end
-          // else if ( rob_commit_wen_2 && rob_commit_slot_2 == i ) begin
-          //   pending[i] <= 1'b0;
-          // end
+          if ( rob_commit_val_1 && rob_commit_slot_1 == i ) begin
+            pending[i] <= 1'b0;
+          end
+          else if ( rob_commit_val_2 && rob_commit_slot_2 == i ) begin
+            pending[i] <= 1'b0;
+          end
         end
       end
     end
@@ -163,17 +163,17 @@ module riscv_CoreScoreboard
   localparam byp_BW  = 4'd10; // Bypass from BW
   localparam byp_ROB = 4'd11; // Bypass from reorder buffer
 
-  wire rs00_bypA_cond_Dhl = !pipeline[src00] && src00_renamed && reg_latency[src00] != 5'b00000;
-  wire rs00_bypB_cond_Dhl = pipeline[src00]  && src00_renamed && reg_latency[src00] != 5'b00000;
+  wire rs00_bypA_cond_Dhl = !pipeline[src00] && src00_renamed && pending[src00];
+  wire rs00_bypB_cond_Dhl = pipeline[src00]  && src00_renamed && pending[src00];
 
-  wire rs01_bypA_cond_Dhl = !pipeline[src01] && src01_renamed && reg_latency[src01] != 5'b00000;
-  wire rs01_bypB_cond_Dhl = pipeline[src01]  && src01_renamed && reg_latency[src01] != 5'b00000;
+  wire rs01_bypA_cond_Dhl = !pipeline[src01] && src01_renamed && pending[src01];
+  wire rs01_bypB_cond_Dhl = pipeline[src01]  && src01_renamed && pending[src01];
 
-  wire rs10_bypA_cond_Dhl = !pipeline[src10] && src10_renamed && reg_latency[src10] != 5'b00000;
-  wire rs10_bypB_cond_Dhl = pipeline[src10]  && src10_renamed && reg_latency[src10] != 5'b00000;
+  wire rs10_bypA_cond_Dhl = !pipeline[src10] && src10_renamed && pending[src10];
+  wire rs10_bypB_cond_Dhl = pipeline[src10]  && src10_renamed && pending[src10];
 
-  wire rs11_bypA_cond_Dhl = !pipeline[src11] && src11_renamed && reg_latency[src11] != 5'b00000;
-  wire rs11_bypB_cond_Dhl = pipeline[src11]  && src11_renamed && reg_latency[src11] != 5'b00000;
+  wire rs11_bypA_cond_Dhl = !pipeline[src11] && src11_renamed && pending[src11];
+  wire rs11_bypB_cond_Dhl = pipeline[src11]  && src11_renamed && pending[src11];
 
   // Operand Bypass Mux Select
 
@@ -193,7 +193,7 @@ module riscv_CoreScoreboard
     : (rs00_bypA_cond_Dhl && ( reg_latency[src00] == 5'b00001)) ? byp_AW
     : (rs00_bypB_cond_Dhl && ( reg_latency[src00] == 5'b00001)) ? byp_BW
 
-    : (src00_renamed && (reg_latency[src00] == 5'd0)) ? byp_ROB
+    : (pending[src00] && src00_renamed && (reg_latency[src00] == 5'd0)) ? byp_ROB
     :                                                byp_r0;  
 
   wire [3:0] op01_byp_mux_sel
@@ -212,7 +212,7 @@ module riscv_CoreScoreboard
     : (rs01_bypA_cond_Dhl && ( reg_latency[src01] == 5'b00001)) ? byp_AW
     : (rs01_bypB_cond_Dhl && ( reg_latency[src01] == 5'b00001)) ? byp_BW
 
-    : (src01_renamed && (reg_latency[src01] == 5'd0)) ? byp_ROB
+    : (pending[src01] && src01_renamed && (reg_latency[src01] == 5'd0)) ? byp_ROB
     :                                                byp_r0;
 
   wire [3:0] op10_byp_mux_sel
@@ -231,7 +231,7 @@ module riscv_CoreScoreboard
     : (rs10_bypA_cond_Dhl && ( reg_latency[src10] == 5'b00001)) ? byp_AW
     : (rs10_bypB_cond_Dhl && ( reg_latency[src10] == 5'b00001)) ? byp_BW
 
-    : (src10_renamed && (reg_latency[src10] == 5'd0)) ? byp_ROB
+    : (pending[src10] && src10_renamed && (reg_latency[src10] == 5'd0)) ? byp_ROB
     :                                                byp_r0;
 
   wire [3:0] op11_byp_mux_sel
@@ -250,7 +250,7 @@ module riscv_CoreScoreboard
     : (rs11_bypA_cond_Dhl && ( reg_latency[src11] == 5'b00001)) ? byp_AW
     : (rs11_bypB_cond_Dhl && ( reg_latency[src11] == 5'b00001)) ? byp_BW
 
-    : (src11_renamed && (reg_latency[src11] == 5'd0)) ? byp_ROB
+    : (pending[src11] && src11_renamed && (reg_latency[src11] == 5'd0)) ? byp_ROB
     :                                                byp_r0;
 
   //----------------------------------------------------------------------
