@@ -525,10 +525,8 @@ module riscv_CoreDpath
   always @ (posedge clk) begin
     if( !stall_X1hl ) begin
       pcA_X1hl              <= pcA_X0hl;
-      pcB_X1hl              <= pcB_X0hl;
       executeA_mux_out_X1hl <= aluA_out_X0hl;
       wdata_X1hl            <= wdata_X0hl;
-      aluB_out_X1hl         <= aluB_out_X0hl;
     end
   end
 
@@ -600,9 +598,7 @@ module riscv_CoreDpath
   always @ (posedge clk) begin
     if( !stall_X2hl ) begin
       pcA_X2hl                 <= pcA_X1hl;
-      pcB_X2hl                 <= pcB_X1hl;
       memexA_mux_out_X2hl      <= memexA_mux_out_X1hl;
-      aluB_out_X2hl            <= aluB_out_X1hl;
     end
   end
 
@@ -618,9 +614,7 @@ module riscv_CoreDpath
   always @ (posedge clk) begin
     if( !stall_X3hl ) begin
       pcA_X3hl                 <= pcA_X2hl;
-      pcB_X3hl                 <= pcB_X2hl;
       memexA_mux_out_X3hl      <= memexA_mux_out_X2hl;
-      aluB_out_X3hl            <= aluB_out_X2hl;
     end
   end
  
@@ -654,9 +648,10 @@ module riscv_CoreDpath
   always @ (posedge clk) begin
     if( !stall_Whl ) begin
       pcA_Whl                 <= pcA_X3hl;
-      pcB_Whl                 <= pcB_X3hl;
       wbA_mux_out_Whl         <= executeA_mux_out_X3hl;
-      aluB_out_Whl            <= aluB_out_X3hl;
+
+      pcB_Whl                 <= pcB_X0hl;
+      aluB_out_Whl            <= aluB_out_X0hl;
     end
   end
 

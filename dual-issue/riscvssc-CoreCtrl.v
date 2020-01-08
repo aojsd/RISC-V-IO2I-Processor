@@ -1414,7 +1414,7 @@ module riscv_CoreCtrl
                        :                       1'bx;
 
   //----------------------------------------------------------------------
-  // X0 <- D
+  // X0 <- I
   //----------------------------------------------------------------------
 
   reg [31:0] irA_X0hl;
@@ -1577,12 +1577,6 @@ module riscv_CoreCtrl
   reg  [4:0] rob_fill_slot_A_X1hl;
   reg        rob_fill_val_A_X1hl;
 
-  reg [31:0] irB_X1hl;
-  reg        rfB_wen_X1hl;
-  reg  [4:0] rfB_waddr_X1hl;
-  reg  [4:0] rob_fill_slot_B_X1hl;
-  reg        rob_fill_val_B_X1hl;
-
   reg        dmemreq_val_X1hl;
   reg  [2:0] dmemresp_mux_sel_X1hl;
   reg        memex_mux_sel_X1hl;
@@ -1616,16 +1610,7 @@ module riscv_CoreCtrl
       csr_wen_X1hl          <= csr_wen_X0hl;
       csr_addr_X1hl         <= csr_addr_X0hl;
 
-      // Current design does not speculate, don't worry if
-      // a branch is taken in X0
-
-      irB_X1hl              <= irB_X0hl;
-      rfB_wen_X1hl          <= rfB_wen_X0hl;
-      rfB_waddr_X1hl        <= rfB_waddr_X0hl;
-      rob_fill_slot_B_X1hl  <= rob_fill_slot_B_X0hl;
-      rob_fill_val_B_X1hl   <= rob_fill_val_B_X0hl && !bubble_next_X0hl;
-
-      bubble_X1hl           <= bubble_next_X0hl;
+      bubble_X1hl           <= !(rob_fill_val_A_X0hl && !bubble_next_X0hl);
     end
   end
 
@@ -1650,7 +1635,7 @@ module riscv_CoreCtrl
   // Stall in X1 if memory response is not returned for a valid request
 
   wire stall_dmem_X1hl
-    = ( !reset && dmemreq_val_X1hl && inst_val_X1hl && !dmemresp_val && !dmemresp_queue_val_X1hl );
+    = ( !reset && dmemreq_val_X1hl && rob_fill_val_A_X1hl && !dmemresp_val && !dmemresp_queue_val_X1hl );
   wire stall_imem_X1hl
     = ( !reset && imemreq_val_Fhl && inst_val_Fhl && !imemresp0_val && !imemresp0_queue_val_Fhl )
    || ( !reset && imemreq_val_Fhl && inst_val_Fhl && !imemresp1_val && !imemresp1_queue_val_Fhl );
@@ -1676,12 +1661,6 @@ module riscv_CoreCtrl
   reg  [4:0] rob_fill_slot_A_X2hl;
   reg        rob_fill_val_A_X2hl;
 
-  reg [31:0] irB_X2hl;
-  reg        rfB_wen_X2hl;
-  reg  [4:0] rfB_waddr_X2hl;
-  reg  [4:0] rob_fill_slot_B_X2hl;
-  reg        rob_fill_val_B_X2hl;
-
   reg        dmemresp_queue_val_X1hl;
   reg        csr_wen_X2hl;
   reg  [4:0] csr_addr_X2hl;
@@ -1703,18 +1682,12 @@ module riscv_CoreCtrl
       rob_fill_slot_A_X2hl  <= rob_fill_slot_A_X1hl;
       rob_fill_val_A_X2hl   <= rob_fill_val_A_X1hl && !bubble_next_X1hl;
 
-      irB_X2hl              <= irB_X1hl;
-      rfB_wen_X2hl          <= rfB_wen_X1hl;
-      rfB_waddr_X2hl        <= rfB_waddr_X1hl;
-      rob_fill_slot_B_X2hl  <= rob_fill_slot_B_X1hl;
-      rob_fill_val_B_X2hl   <= rob_fill_val_B_X1hl && !bubble_next_X1hl;
-
       muldiv_mux_sel_X2hl   <= muldiv_mux_sel_X1hl;
       csr_wen_X2hl          <= csr_wen_X1hl;
       csr_addr_X2hl         <= csr_addr_X1hl;
       execute_mux_sel_X2hl  <= execute_mux_sel_X1hl;
 
-      bubble_X2hl           <= bubble_next_X1hl;
+      bubble_X2hl           <= !(rob_fill_val_A_X1hl && !bubble_next_X1hl);
     end
     dmemresp_queue_val_X1hl <= dmemresp_queue_val_next_X1hl;
   end
@@ -1752,12 +1725,6 @@ module riscv_CoreCtrl
   reg  [4:0] rob_fill_slot_A_X3hl;
   reg        rob_fill_val_A_X3hl;
 
-  reg [31:0] irB_X3hl;
-  reg        rfB_wen_X3hl;
-  reg  [4:0] rfB_waddr_X3hl;
-  reg  [4:0] rob_fill_slot_B_X3hl;
-  reg        rob_fill_val_B_X3hl;
-
   reg        csr_wen_X3hl;
   reg  [4:0] csr_addr_X3hl;
   reg        execute_mux_sel_X3hl;
@@ -1778,18 +1745,12 @@ module riscv_CoreCtrl
       rob_fill_slot_A_X3hl  <= rob_fill_slot_A_X2hl;
       rob_fill_val_A_X3hl   <= rob_fill_val_A_X2hl && !bubble_next_X2hl;
 
-      irB_X3hl              <= irB_X2hl;
-      rfB_wen_X3hl          <= rfB_wen_X2hl;
-      rfB_waddr_X3hl        <= rfB_waddr_X2hl;
-      rob_fill_slot_B_X3hl  <= rob_fill_slot_B_X2hl;
-      rob_fill_val_B_X3hl   <= rob_fill_val_B_X2hl && !bubble_next_X2hl;
-
       muldiv_mux_sel_X3hl   <= muldiv_mux_sel_X2hl;
       csr_wen_X3hl          <= csr_wen_X2hl;
       csr_addr_X3hl         <= csr_addr_X2hl;
       execute_mux_sel_X3hl  <= execute_mux_sel_X2hl;
 
-      bubble_X3hl           <= bubble_next_X2hl;
+      bubble_X3hl           <= !(rob_fill_val_A_X2hl && !bubble_next_X2hl);
     end
   end
 
@@ -1834,7 +1795,6 @@ module riscv_CoreCtrl
 
   reg        csr_wen_Whl;
   reg  [4:0] csr_addr_Whl;
-
   reg        bubble_Whl;
 
   // Pipeline Controls
@@ -1844,22 +1804,23 @@ module riscv_CoreCtrl
       bubble_Whl <= 1'b1;
     end
     else if( !stall_Whl ) begin
-      irA_Whl          <= irA_X3hl;
-      rfA_wen_Whl      <= rfA_wen_X3hl;
-      rfA_waddr_Whl    <= rfA_waddr_X3hl;
-      rob_fill_slot_A_Whl  <= rob_fill_slot_A_X3hl;
-      rob_fill_val_A_Whl   <= rob_fill_val_A_X3hl && !bubble_next_X3hl;
+      irA_Whl             <= irA_X3hl;
+      rfA_wen_Whl         <= rfA_wen_X3hl;
+      rfA_waddr_Whl       <= rfA_waddr_X3hl;
+      rob_fill_slot_A_Whl <= rob_fill_slot_A_X3hl;
+      rob_fill_val_A_Whl  <= rob_fill_val_A_X3hl && !bubble_next_X3hl;
 
-      irB_Whl          <= irB_X3hl;
-      rfB_wen_Whl      <= rfB_wen_X3hl;
-      rfB_waddr_Whl    <= rfB_waddr_X3hl;
-      rob_fill_slot_B_Whl  <= rob_fill_slot_B_X3hl;
-      rob_fill_val_B_Whl   <= rob_fill_val_B_X3hl && !bubble_next_X3hl;
+      irB_Whl             <= irB_X0hl;
+      rfB_wen_Whl         <= rfB_wen_X0hl;
+      rfB_waddr_Whl       <= rfB_waddr_X0hl;
+      rob_fill_slot_B_Whl <= rob_fill_slot_B_X0hl;
+      rob_fill_val_B_Whl  <= rob_fill_val_B_X0hl && !bubble_next_X0hl;
 
-      csr_wen_Whl      <= csr_wen_X3hl;
-      csr_addr_Whl     <= csr_addr_X3hl;
+      csr_wen_Whl         <= csr_wen_X3hl;
+      csr_addr_Whl        <= csr_addr_X3hl;
 
-      bubble_Whl       <= bubble_next_X3hl;
+      bubble_Whl          <= !(rob_fill_val_B_X0hl && !bubble_next_X0hl) &&
+                             !(rob_fill_val_A_X3hl && !bubble_next_X3hl);
     end
   end
 
@@ -1871,10 +1832,10 @@ module riscv_CoreCtrl
 
   wire inst_val_Whl = ( !bubble_Whl && !squash_Whl );
 
-  // Only set register file wen if stage is valid
+  // Only set register file wen if instruction is valid
 
-  wire rfA_wen_out_Whl = ( inst_val_Whl && !stall_Whl && rfA_wen_Whl );
-  wire rfB_wen_out_Whl = ( inst_val_Whl && !stall_Whl && rfB_wen_Whl );
+  wire rfA_wen_out_Whl = ( rob_fill_val_A_Whl && !stall_Whl && rfA_wen_Whl );
+  wire rfB_wen_out_Whl = ( rob_fill_val_B_Whl && !stall_Whl && rfB_wen_Whl );
 
   // Dummy squash and stall signals
 
@@ -1908,7 +1869,7 @@ module riscv_CoreCtrl
   reg         csr_stats;
 
   always @ ( posedge clk ) begin
-    if ( csr_wen_Whl && inst_val_Whl ) begin
+    if ( csr_wen_Whl && rob_fill_val_A_Whl ) begin
       case ( csr_addr_Whl )
         12'd10 : csr_stats  <= proc2csr_data_Whl[0];
         12'd21 : csr_status <= proc2csr_data_Whl;
@@ -1969,17 +1930,17 @@ module riscv_CoreCtrl
 
   riscv_InstMsgDisasm instB_msg_disasm_X1
   (
-    .msg ( irB_X1hl )
+    .msg ( irB_X0hl )
   );
 
   riscv_InstMsgDisasm instB_msg_disasm_X2
   (
-    .msg ( irB_X2hl )
+    .msg ( irB_X0hl )
   );
 
   riscv_InstMsgDisasm instB_msg_disasm_X3
   (
-    .msg ( irB_X3hl )
+    .msg ( irB_X0hl )
   );
 
   riscv_InstMsgDisasm instB_msg_disasm_W
