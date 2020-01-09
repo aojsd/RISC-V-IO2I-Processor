@@ -795,6 +795,7 @@ module riscv_CoreCtrl
     .rob_commit_wen_1            (rob_commit_wen_1_Chl),
     .rob_commit_rf_waddr_1       (rob_commit_waddr_1_Chl),
     .rob_commit_val_1            (rob_commit_val_1),
+    .rob_commit_spec_1           (rob_commit_spec_1),
 
     .rob_alloc_req_val_2         (rob_req_val_2_Dhl),
     .rob_alloc_req_wen_2         (rf1_wen_Dhl),
@@ -806,6 +807,7 @@ module riscv_CoreCtrl
     .rob_commit_wen_2            (rob_commit_wen_2_Chl),
     .rob_commit_rf_waddr_2       (rob_commit_waddr_2_Chl),
     .rob_commit_val_2            (rob_commit_val_2),
+    .rob_commit_spec_2           (rob_commit_spec_2),
 
     .rob_alloc_resp_slot_1       (rob_resp_slot_1),
     .rob_alloc_resp_slot_2       (rob_resp_slot_2),
@@ -1635,7 +1637,7 @@ module riscv_CoreCtrl
   // Stall in X1 if memory response is not returned for a valid request
 
   wire stall_dmem_X1hl
-    = ( !reset && dmemreq_val_X1hl && rob_fill_val_A_X1hl && !dmemresp_val && !dmemresp_queue_val_X1hl );
+    = ( !reset && dmemreq_val_X1hl && inst_val_X1hl && !dmemresp_val && !dmemresp_queue_val_X1hl );
   wire stall_imem_X1hl
     = ( !reset && imemreq_val_Fhl && inst_val_Fhl && !imemresp0_val && !imemresp0_queue_val_Fhl )
    || ( !reset && imemreq_val_Fhl && inst_val_Fhl && !imemresp1_val && !imemresp1_queue_val_Fhl );
@@ -1993,8 +1995,11 @@ module riscv_CoreCtrl
   reg [31:0] num_cycles  = 32'b0;
   reg        stats_en    = 1'b0; // Used for enabling stats on asm tests
 
-  wire count0 = ir0_issued_Ihl && inst_val_Ihl;
-  wire count1 = ir1_issued_Ihl && inst_val_Ihl;
+  wire rob_commit_spec_1;
+  wire rob_commit_spec_2;
+
+  wire count0 = rob_commit_val_1 && !rob_commit_spec_1;
+  wire count1 = rob_commit_val_2 && !rob_commit_spec_2;
 
   always @( posedge clk ) begin
     if ( !reset ) begin
@@ -2004,16 +2009,13 @@ module riscv_CoreCtrl
       if ( stats_en || csr_stats ) begin
         num_cycles = num_cycles + 1;
 
-        // Count instructions that reah writeback
-        if ( inst_val_Ihl ) begin
-          if ( count0 && count1 ) begin
-            num_inst = num_inst + 2;
-          end
-          else if ( count0 || count1 ) begin
-            num_inst = num_inst + 1;
-          end
+        // Count instructions that reach writeback
+        if ( count0 && count1 ) begin
+          num_inst = num_inst + 2;
         end
-
+        else if ( count0 || count1 ) begin
+          num_inst = num_inst + 1;
+        end
       end
 
     end

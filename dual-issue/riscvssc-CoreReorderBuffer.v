@@ -33,10 +33,12 @@ module riscv_CoreReorderBuffer
   output  [4:0] rob_commit_slot_1,
   output  [4:0] rob_commit_rf_waddr_1,
   output        rob_commit_val_1,
+  output        rob_commit_spec_1,
   output        rob_commit_wen_2,
   output  [4:0] rob_commit_slot_2,
   output  [4:0] rob_commit_rf_waddr_2,
   output        rob_commit_val_2,
+  output        rob_commit_spec_2,
 
   output  [4:0] rob_alloc_resp_slot_1,
   output  [4:0] rob_alloc_resp_slot_2,
@@ -241,6 +243,9 @@ module riscv_CoreReorderBuffer
   reg rob_commit_val_1;
   reg rob_commit_val_2;
 
+  reg rob_commit_spec_1;
+  reg rob_commit_spec_2;
+
   always @(*) begin
 
     // Since commits occur in order, check the head pointer first, checking
@@ -261,7 +266,7 @@ module riscv_CoreReorderBuffer
           rob_commit_wen_2      = rob_wen[rob_head_next];
 
           rob_commit_val_1 = 1'b1;
-          rob_commit_val_2 = 1'b1;            
+          rob_commit_val_2 = 1'b1;
       end
       else begin
         rob_commit_slot_2     = 5'b0;
@@ -284,6 +289,9 @@ module riscv_CoreReorderBuffer
       rob_commit_val_1 = 1'b0;
       rob_commit_val_2 = 1'b0;
     end
+
+    rob_commit_spec_1 = rob_spec[rob_head];
+    rob_commit_spec_2 = rob_spec[rob_head_next];
   end
 
   // Update head pointer and ROB state
