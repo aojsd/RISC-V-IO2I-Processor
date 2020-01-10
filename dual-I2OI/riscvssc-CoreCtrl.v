@@ -917,8 +917,6 @@ module riscv_CoreCtrl
   reg  [4:0]  rob_fill_slot_1_Ihl;
   reg         rob_fill_val_0_Ihl;
   reg         rob_fill_val_1_Ihl;
-  reg         spec_0_Ihl;
-  reg         spec_1_Ihl;
 
   reg         rs00_renamed_Ihl;
   reg         rs01_renamed_Ihl;
@@ -990,8 +988,6 @@ module riscv_CoreCtrl
       rs11_en_Ihl           <= rs11_en_Dhl;
       rob_fill_slot_0_Ihl   <= rob_fill_slot_0_Dhl;
       rob_fill_slot_1_Ihl   <= rob_fill_slot_1_Dhl;
-      spec_0_Ihl            <= rob_req_spec_1_Dhl;
-      spec_1_Ihl            <= rob_req_spec_2_Dhl;
 
       rs00_renamed_Ihl      <= rs00_renamed_Dhl;
       rs01_renamed_Ihl      <= rs01_renamed_Dhl;
@@ -1049,7 +1045,7 @@ module riscv_CoreCtrl
   reg  [3:0] aluA_fn_Ihl;
   reg  [4:0] rob_fill_slot_A_Ihl;
   reg        rob_fill_val_A_Ihl;
-  reg        spec_A_Ihl;
+  
 
   reg [31:0] irB_Ihl;
   reg        rfB_wen_Ihl;
@@ -1057,7 +1053,6 @@ module riscv_CoreCtrl
   reg  [3:0] aluB_fn_Ihl;
   reg  [4:0] rob_fill_slot_B_Ihl;
   reg        rob_fill_val_B_Ihl;
-  reg        spec_B_Ihl;
 
   reg  [2:0] br_sel_Ihl;
   reg        muldivreq_val_Ihl;
@@ -1072,7 +1067,22 @@ module riscv_CoreCtrl
   reg        csr_wen_Ihl;
   reg [11:0] csr_addr_Ihl;
 
-  // For disassembly
+  reg        rsA0_renamed_Ihl;
+  reg        rsA1_renamed_Ihl;
+  reg  [4:0] rsA0_rt_slot_Ihl;
+  reg  [4:0] rsA1_rt_slot_Ihl;
+  reg        rsA0_en_Ihl;
+  reg        rsA1_en_Ihl;
+
+  reg        rsB0_renamed_Ihl;
+  reg        rsB1_renamed_Ihl;
+  reg  [4:0] rsB0_rt_slot_Ihl;
+  reg  [4:0] rsB1_rt_slot_Ihl;
+  reg        rsB0_en_Ihl;
+  reg        rsB1_en_Ihl;
+
+
+  // For disassembly in dpath
 
   assign instA_Ihl            = irA_Ihl;
   assign instB_Ihl            = irB_Ihl;
@@ -1152,15 +1162,7 @@ module riscv_CoreCtrl
     end
   end
 
-  // Steer operand and bypass mux select signals
-  assign opA0_byp_mux_sel_Ihl
-    = ( steering_mux_sel_Ihl == 1'b0 ) ? op00_byp_mux_sel_Ihl
-    : ( steering_mux_sel_Ihl == 1'b1 ) ? op10_byp_mux_sel_Ihl
-    :                                    4'bx;
-  assign opA1_byp_mux_sel_Ihl
-    = ( steering_mux_sel_Ihl == 1'b0 ) ? op01_byp_mux_sel_Ihl
-    : ( steering_mux_sel_Ihl == 1'b1 ) ? op11_byp_mux_sel_Ihl
-    :                                    4'bx;
+  // Steer operand and mux select signals
   assign opA0_mux_sel_Ihl
     = ( steering_mux_sel_Ihl == 1'b0 ) ? op00_mux_sel_Ihl
     : ( steering_mux_sel_Ihl == 1'b1 ) ? op10_mux_sel_Ihl
@@ -1169,14 +1171,6 @@ module riscv_CoreCtrl
     = ( steering_mux_sel_Ihl == 1'b0 ) ? op01_mux_sel_Ihl
     : ( steering_mux_sel_Ihl == 1'b1 ) ? op11_mux_sel_Ihl
     :                                    2'bx;
-  assign opB0_byp_mux_sel_Ihl
-    = ( steering_mux_sel_Ihl == 1'b0 ) ? op10_byp_mux_sel_Ihl
-    : ( steering_mux_sel_Ihl == 1'b1 ) ? op00_byp_mux_sel_Ihl
-    :                                    4'bx;
-  assign opB1_byp_mux_sel_Ihl
-    = ( steering_mux_sel_Ihl == 1'b0 ) ? op11_byp_mux_sel_Ihl
-    : ( steering_mux_sel_Ihl == 1'b1 ) ? op01_byp_mux_sel_Ihl
-    :                                    4'bx;
   assign opB0_mux_sel_Ihl
     = ( steering_mux_sel_Ihl == 1'b0 ) ? op10_mux_sel_Ihl
     : ( steering_mux_sel_Ihl == 1'b1 ) ? op00_mux_sel_Ihl
@@ -1211,7 +1205,6 @@ module riscv_CoreCtrl
       rfA_waddr_Ihl        = rf0_waddr_Ihl;
       aluA_fn_Ihl          = alu0_fn_Ihl;
       rob_fill_slot_A_Ihl  = rob_fill_slot_0_Ihl;
-      spec_A_Ihl           = spec_0_Ihl;
 
       br_sel_Ihl           = br0_sel_Ihl;
       muldivreq_val_Ihl    = muldivreq0_val_Ihl;
@@ -1225,6 +1218,13 @@ module riscv_CoreCtrl
       memex_mux_sel_Ihl    = memex0_mux_sel_Ihl;
       csr_wen_Ihl          = csr0_wen_Ihl;
       csr_addr_Ihl         = csr0_addr_Ihl;
+
+      rsA0_renamed_Ihl     = rs00_renamed_Ihl;
+      rsA1_renamed_Ihl     = rs01_renamed_Ihl;
+      rsA0_rt_slot_Ihl     = rs00_rt_slot_Ihl;
+      rsA1_rt_slot_Ihl     = rs01_rt_slot_Ihl;
+      rsA0_en_Ihl          = rs00_en_Ihl;
+      rsA1_en_Ihl          = rs01_en_Ihl;
 
       if( !stall_0_Ihl ) begin
         ir0_issued_Ihl     = 1'b1;
@@ -1244,7 +1244,13 @@ module riscv_CoreCtrl
         aluB_fn_Ihl          = alu1_fn_Ihl;
         rob_fill_slot_B_Ihl  = rob_fill_slot_1_Ihl;
         rob_fill_val_B_Ihl   = 1'b1;
-        spec_B_Ihl           = spec_1_Ihl;
+
+        rsB0_renamed_Ihl     = rs10_renamed_Ihl;
+        rsB1_renamed_Ihl     = rs11_renamed_Ihl;
+        rsB0_rt_slot_Ihl     = rs10_rt_slot_Ihl;
+        rsB1_rt_slot_Ihl     = rs11_rt_slot_Ihl;
+        rsB0_en_Ihl          = rs10_en_Ihl;
+        rsB1_en_Ihl          = rs11_en_Ihl;
 
         ir1_issued_Ihl       = 1'b1;
       end
@@ -1268,7 +1274,6 @@ module riscv_CoreCtrl
       rfA_waddr_Ihl        = rf1_waddr_Ihl;
       aluA_fn_Ihl          = alu1_fn_Ihl;
       rob_fill_slot_A_Ihl  = rob_fill_slot_1_Ihl;
-      spec_A_Ihl           = spec_1_Ihl;
 
       br_sel_Ihl           = br1_sel_Ihl;
       aluA_fn_Ihl          = alu1_fn_Ihl;
@@ -1283,6 +1288,13 @@ module riscv_CoreCtrl
       memex_mux_sel_Ihl    = memex1_mux_sel_Ihl;
       csr_wen_Ihl          = csr1_wen_Ihl;
       csr_addr_Ihl         = csr1_addr_Ihl;
+
+      rsA0_renamed_Ihl     = rs10_renamed_Ihl;
+      rsA1_renamed_Ihl     = rs11_renamed_Ihl;
+      rsA0_rt_slot_Ihl     = rs10_rt_slot_Ihl;
+      rsA1_rt_slot_Ihl     = rs11_rt_slot_Ihl;
+      rsA0_en_Ihl          = rs10_en_Ihl;
+      rsA1_en_Ihl          = rs11_en_Ihl;
 
       // If i1 and X0 are not stalled, both instructions will issued,
       // set ir0_issued_only to 0, and ir1_issued to 1
@@ -1302,10 +1314,16 @@ module riscv_CoreCtrl
         rfB_waddr_Ihl        = rf0_waddr_Ihl;
         aluB_fn_Ihl          = alu0_fn_Ihl;
         rob_fill_slot_B_Ihl  = rob_fill_slot_0_Ihl;
-        spec_B_Ihl           = spec_0_Ihl;
+        rob_fill_val_B_Ihl   = 1'b1;
+
+        rsB0_renamed_Ihl     = rs00_renamed_Ihl;
+        rsB1_renamed_Ihl     = rs01_renamed_Ihl;
+        rsB0_rt_slot_Ihl     = rs00_rt_slot_Ihl;
+        rsB1_rt_slot_Ihl     = rs01_rt_slot_Ihl;
+        rsB0_en_Ihl          = rs00_en_Ihl;
+        rsB1_en_Ihl          = rs01_en_Ihl;
 
         ir0_issued_Ihl       = 1'b1;
-        rob_fill_val_B_Ihl   = 1'b1;
       end
 
       // Otherwise send an invalid instruction down path B
@@ -1331,46 +1349,47 @@ module riscv_CoreCtrl
   // Scoreboard Logic
   //----------------------------------------------------------------------
 
-  wire [1:0] func_ir0_Ihl = {muldivreq0_val_Ihl, dmemreq0_val_Ihl};
-  wire [1:0] func_ir1_Ihl = {muldivreq1_val_Ihl, dmemreq1_val_Ihl};
+  wire [1:0] func_irA_Ihl = {muldivreq_val_Ihl, dmemreq_val_Ihl};
 
-  wire stall_0_sb_Ihl;
-  wire stall_1_sb_Ihl;
+  wire A_issued_Ihl = ( !steering_mux_sel_Ihl && ir0_issued_Ihl ) ||
+                      (  steering_mux_sel_Ihl && ir1_issued_Ihl );
+  wire B_issued_Ihl = ( !steering_mux_sel_Ihl && ir1_issued_Ihl ) ||
+                      (  steering_mux_sel_Ihl && ir0_issued_Ihl );
 
-  wire [3:0] op00_byp_mux_sel_Ihl;
-  wire [3:0] op01_byp_mux_sel_Ihl;
-  wire [3:0] op10_byp_mux_sel_Ihl;
-  wire [3:0] op11_byp_mux_sel_Ihl;
+  wire stall_0_sb_Ihl = ( (!sb_src_ready[rs00_rt_slot_Ihl] && rs00_en_Ihl && rs00_renamed_Ihl)
+                       || (!sb_src_ready[rs01_rt_slot_Ihl] && rs01_en_Ihl && rs01_renamed_Ihl) )
+                       && inst_val_Ihl;
+  wire stall_1_sb_Ihl = ( (!sb_src_ready[rs10_rt_slot_Ihl] && rs10_en_Ihl && rs10_renamed_Ihl)
+                       || (!sb_src_ready[rs11_rt_slot_Ihl] && rs11_en_Ihl && rs11_renamed_Ihl) )
+                       && inst_val_Ihl;
+
+  wire [31:0] sb_src_ready;
 
   riscv_CoreScoreboard scoreboard
   (
     .clk                (clk),
     .reset              (reset),
 
-    .src00              (rs00_rt_slot_Ihl),
-    .src00_en           (rs00_en_Ihl),
-    .src00_renamed      (rs00_renamed_Ihl),
-    .src01              (rs01_rt_slot_Ihl),
-    .src01_en           (rs01_en_Ihl),
-    .src01_renamed      (rs01_renamed_Ihl),
-    .dst0               (rob_fill_slot_0_Ihl),
-    .dst0_en            (rf0_wen_Ihl),
-    .func_ir0           (func_ir0_Ihl),
-    .ir0_issued         (ir0_issued_Ihl),
+    .srcA0              (rsA0_rt_slot_Ihl),
+    .srcA0_en           (rsA0_en_Ihl),
+    .srcA0_renamed      (rsA0_renamed_Ihl),
+    .srcA1              (rsA1_rt_slot_Ihl),
+    .srcA1_en           (rsA1_en_Ihl),
+    .srcA1_renamed      (rsA1_renamed_Ihl),
+    .dstA               (rob_fill_slot_A_Ihl),
+    .dstA_en            (rob_fill_val_A_Ihl),
+    .func_irA           (func_irA_Ihl),
+    .A_issued           (A_issued_Ihl),
 
-    .src10              (rs10_rt_slot_Ihl),
-    .src10_en           (rs10_en_Ihl),
-    .src10_renamed      (rs10_renamed_Ihl),
-    .src11              (rs11_rt_slot_Ihl),
-    .src11_en           (rs11_en_Ihl),
-    .src11_renamed      (rs11_renamed_Ihl),
-    .dst1               (rob_fill_slot_1_Ihl),
-    .dst1_en            (rf1_wen_Ihl),
-    .func_ir1           (func_ir1_Ihl),
-    .ir1_issued         (ir1_issued_Ihl),
-
-    .steer_signal       (steering_mux_sel_Ihl),
-    .inst_val_Ihl       (inst_val_Ihl),
+    .srcB0              (rsB0_rt_slot_Ihl),
+    .srcB0_en           (rsB0_en_Ihl),
+    .srcB0_renamed      (rsB0_renamed_Ihl),
+    .srcB1              (rsB1_rt_slot_Ihl),
+    .srcB1_en           (rsB1_en_Ihl),
+    .srcB1_renamed      (rsB1_renamed_Ihl),
+    .dstB               (rob_fill_slot_B_Ihl),
+    .dstB_en            (rob_fill_val_B_Ihl),
+    .B_issued           (B_issued_Ihl),
 
     .stall_X0hl         (stall_X0hl),
     .stall_X1hl         (stall_X1hl),
@@ -1383,13 +1402,12 @@ module riscv_CoreCtrl
     .rob_commit_slot_2  (rob_commit_slot_2_Chl),
     .rob_commit_val_2   (rob_commit_val_2),
 
-    .stall_ir0          (stall_0_sb_Ihl),
-    .stall_ir1          (stall_1_sb_Ihl),
+    .opA0_byp_mux_sel   (opA0_byp_mux_sel_Ihl),
+    .opA1_byp_mux_sel   (opA1_byp_mux_sel_Ihl),
+    .opB0_byp_mux_sel   (opB0_byp_mux_sel_Ihl),
+    .opB1_byp_mux_sel   (opB1_byp_mux_sel_Ihl),
 
-    .op00_byp_mux_sel   (op00_byp_mux_sel_Ihl),
-    .op01_byp_mux_sel   (op01_byp_mux_sel_Ihl),
-    .op10_byp_mux_sel   (op10_byp_mux_sel_Ihl),
-    .op11_byp_mux_sel   (op11_byp_mux_sel_Ihl)
+    .src_ready          (sb_src_ready)
   );
 
   //----------------------------------------------------------------------
@@ -1406,6 +1424,8 @@ module riscv_CoreCtrl
 
   wire stall_Ihl   = ( stall_X0hl || stall_0_Ihl || stall_1_Ihl )
                    && !brj_taken_Ihl && !brj_taken_X0hl;
+
+
 
   // Send a bubble to the next stage if either ir0 is valid and stalled,
   // or if ir0 is invalid and i1 is stalled
@@ -1425,7 +1445,6 @@ module riscv_CoreCtrl
   reg  [4:0] rfA_waddr_X0hl;
   reg  [4:0] rob_fill_slot_A_X0hl;
   reg        rob_fill_val_A_X0hl;
-  reg        spec_A_X0hl;
 
   reg [31:0] irB_X0hl;
   reg  [3:0] aluB_fn_X0hl;
@@ -1433,7 +1452,6 @@ module riscv_CoreCtrl
   reg  [4:0] rfB_waddr_X0hl;
   reg  [4:0] rob_fill_slot_B_X0hl;
   reg        rob_fill_val_B_X0hl;
-  reg        spec_B_X0hl;
 
   reg  [2:0] br_sel_X0hl;
   reg        muldivreq_val_X0hl;
@@ -1464,7 +1482,6 @@ module riscv_CoreCtrl
       rfA_waddr_X0hl        <= rfA_waddr_Ihl;
       rob_fill_slot_A_X0hl  <= rob_fill_slot_A_Ihl;
       rob_fill_val_A_X0hl   <= rob_fill_val_A_Ihl && !bubble_next_Ihl;
-      spec_A_X0hl           <= spec_A_Ihl;
 
       irB_X0hl              <= irB_Ihl;
       aluB_fn_X0hl          <= aluB_fn_Ihl;
@@ -1472,7 +1489,6 @@ module riscv_CoreCtrl
       rfB_waddr_X0hl        <= rfB_waddr_Ihl;
       rob_fill_slot_B_X0hl  <= rob_fill_slot_B_Ihl;
       rob_fill_val_B_X0hl   <= rob_fill_val_B_Ihl && !bubble_next_Ihl;
-      spec_B_X0hl           <= spec_B_Ihl;
 
       br_sel_X0hl           <= br_sel_Ihl;
       muldivreq_val_X0hl    <= muldivreq_val_Ihl;

@@ -10,30 +10,26 @@ module riscv_CoreScoreboard
   input         clk,
   input         reset,
 
-  input  [ 4:0] src00,            // Source 0 of ir0
-  input         src00_en,
-  input         src00_renamed,
-  input  [ 4:0] src01,            // Source 1 of ir0
-  input         src01_en,
-  input         src01_renamed,
-  input  [ 4:0] dst0,             // Instruction 0 destination register
-  input         dst0_en,          // Write to destination register
-  input  [ 1:0] func_ir0,         // Ir0 type
-  input         ir0_issued,
+  input  [ 4:0] srcA0,            // Source 0 of A
+  input         srcA0_en,
+  input         srcA0_renamed,
+  input  [ 4:0] srcA1,            // Source 1 of A
+  input         srcA1_en,
+  input         srcA1_renamed,
+  input  [ 4:0] dstA,             // Instruction A destination ROB slot
+  input         dstA_en,          // Instruction A write enable
+  input  [ 1:0] func_irA,         // IrA type
+  input         A_issued,
 
-  input  [ 4:0] src10,            // Source 0 of ir1
-  input         src10_en,
-  input         src10_renamed,
-  input  [ 4:0] src11,            // Source 1 of ir1
-  input         src11_en,
-  input         src11_renamed,
-  input  [ 4:0] dst1,             // Instruction 1 destination register
-  input         dst1_en,          // Write to destination register
-  input  [ 1:0] func_ir1,         // Ir1 type
-  input         ir1_issued,
-
-  input         steer_signal,     // Steering signal to determine pipelines
-  input         inst_val_Ihl,
+  input  [ 4:0] srcB0,            // Source 0 of B
+  input         srcB0_en,
+  input         srcB0_renamed,
+  input  [ 4:0] srcB1,            // Source 1 of B
+  input         srcB1_en,
+  input         srcB1_renamed,
+  input  [ 4:0] dstB,             // Instruction B destination ROB slot
+  input         dstB_en,          // Instruction B write enable
+  input         B_issued,
 
   input         stall_X0hl,
   input         stall_X1hl,
@@ -46,27 +42,20 @@ module riscv_CoreScoreboard
   input  [ 4:0] rob_commit_slot_2,  // Second committed slot in the ROB
   input         rob_commit_val_2,   // Ensure ROB slot 2 is valid
 
-  output        stall_ir0,        // Src0 stall signal from scoreboard
-  output        stall_ir1,        // Src1 stall signal from scoreboard
+  output [ 3:0] opA0_byp_mux_sel,   // srcA0 bypass signal
+  output [ 3:0] opA1_byp_mux_sel,   // srcA1 bypass signal
+  output [ 3:0] opB0_byp_mux_sel,   // srcB0 bypass signal
+  output [ 3:0] opB1_byp_mux_sel,   // srcB1 bypass signal
 
-  output [ 3:0] op00_byp_mux_sel, // Ir0, src0 bypass signal
-  output [ 3:0] op01_byp_mux_sel, // Ir0, src1 bypass signal
-  output [ 3:0] op10_byp_mux_sel, // Ir1, src0 bypass signal
-  output [ 3:0] op11_byp_mux_sel  // Ir1, src1 bypass signal
-
-  // output [ 4:0] op00_byp_rob_slot,  // Ir0, src0 ROB slot
-  // output [ 4:0] op01_byp_rob_slot,  // Ir0, src1 ROB slot
-  // output [ 4:0] op10_byp_rob_slot,  // Ir1, src0 ROB slot
-  // output [ 4:0] op11_byp_rob_slot   // Ir1, src1 ROB slot
+  output [31:0] src_ready
 );
 
   reg [31:0] pending;
   reg [31:0] pipeline;
+  reg [31:0] src_ready;
   reg [ 4:0] reg_latency  [31:0];
   reg [ 4:0] rob_slots    [31:0];
   reg [ 1:0] func_unit    [31:0];
-
-  reg [31:0] rt_pipeline;
 
   localparam alu_inst     = 2'b00;
   localparam mem_inst     = 2'b01;
@@ -104,27 +93,19 @@ module riscv_CoreScoreboard
       // Pipeline 0 is A, pipeline 1 is B
 
       for ( i = 0; i < 32; i = i + 1 ) begin
-        if ( ir0_issued && dst0_en && ( i == dst0 ) ) begin
-          pipeline[i]   <= steer_signal;
+        if ( A_issued && dstA_en && ( i == dstA ) ) begin
+          reg_latency[i] <= 5'b10000;
+          pipeline[i]   <= 1'b0;
           pending[i]    <= 1'b1;
-          func_unit[i]  <= func_ir0;
+          func_unit[i]  <= func_irA;
           rob_slots[i]  <= i;
-
-          if(steer_signal) begin
-            reg_latency[i] <= 5'b00010;
-          end
-          else reg_latency[i] <= 5'b10000;
         end
-        else if ( ir1_issued && dst1_en && ( i == dst1 ) ) begin
-          pipeline[i]   <= !steer_signal;
+        else if ( B_issued && dstB_en && ( i == dstB ) ) begin
+          reg_latency[i] <= 5'b00010;
+          pipeline[i]   <= 1'b1;
           pending[i]    <= 1'b1;
-          func_unit[i]  <= func_ir1;
+          func_unit[i]  <= alu_inst;
           rob_slots[i]  <= i;
-
-          if(!steer_signal) begin
-            reg_latency[i] <= 5'b00010;
-          end
-          else reg_latency[i] <= 5'b10000;
         end
 
         //----------------------------------------------------------------------
@@ -174,109 +155,86 @@ module riscv_CoreScoreboard
   localparam byp_BW  = 4'd10; // Bypass from BW
   localparam byp_ROB = 4'd11; // Bypass from reorder buffer
 
-  wire rs00_bypA_cond_Dhl = !pipeline[src00] && src00_renamed && pending[src00];
-  wire rs00_bypB_cond_Dhl = pipeline[src00]  && src00_renamed && pending[src00];
+  wire rsA0_bypA_cond_Dhl = !pipeline[srcA0] && srcA0_renamed && pending[srcA0];
+  wire rsA0_bypB_cond_Dhl = pipeline[srcA0]  && srcA0_renamed && pending[srcA0];
 
-  wire rs01_bypA_cond_Dhl = !pipeline[src01] && src01_renamed && pending[src01];
-  wire rs01_bypB_cond_Dhl = pipeline[src01]  && src01_renamed && pending[src01];
+  wire rsA1_bypA_cond_Dhl = !pipeline[srcA1] && srcA1_renamed && pending[srcA1];
+  wire rsA1_bypB_cond_Dhl = pipeline[srcA1]  && srcA1_renamed && pending[srcA1];
 
-  wire rs10_bypA_cond_Dhl = !pipeline[src10] && src10_renamed && pending[src10];
-  wire rs10_bypB_cond_Dhl = pipeline[src10]  && src10_renamed && pending[src10];
+  wire rsB0_bypA_cond_Dhl = !pipeline[srcB0] && srcB0_renamed && pending[srcB0];
+  wire rsB0_bypB_cond_Dhl = pipeline[srcB0]  && srcB0_renamed && pending[srcB0];
 
-  wire rs11_bypA_cond_Dhl = !pipeline[src11] && src11_renamed && pending[src11];
-  wire rs11_bypB_cond_Dhl = pipeline[src11]  && src11_renamed && pending[src11];
+  wire rsB1_bypA_cond_Dhl = !pipeline[srcB1] && srcB1_renamed && pending[srcB1];
+  wire rsB1_bypB_cond_Dhl = pipeline[srcB1]  && srcB1_renamed && pending[srcB1];
 
   // Operand Bypass Mux Select
 
-  wire [3:0] op00_byp_mux_sel
-    = (rs00_bypA_cond_Dhl && ( reg_latency[src00] == 5'b10000)) ? byp_AX0
-    : (rs00_bypA_cond_Dhl && ( reg_latency[src00] == 5'b01000)) ? byp_AX1
-    : (rs00_bypA_cond_Dhl && ( reg_latency[src00] == 5'b00100)) ? byp_AX2
-    : (rs00_bypA_cond_Dhl && ( reg_latency[src00] == 5'b00010)) ? byp_AX3
-    : (rs00_bypA_cond_Dhl && ( reg_latency[src00] == 5'b00001)) ? byp_AW
+  wire [3:0] opA0_byp_mux_sel
+    = (rsA0_bypA_cond_Dhl && ( reg_latency[srcA0] == 5'b10000)) ? byp_AX0
+    : (rsA0_bypA_cond_Dhl && ( reg_latency[srcA0] == 5'b01000)) ? byp_AX1
+    : (rsA0_bypA_cond_Dhl && ( reg_latency[srcA0] == 5'b00100)) ? byp_AX2
+    : (rsA0_bypA_cond_Dhl && ( reg_latency[srcA0] == 5'b00010)) ? byp_AX3
+    : (rsA0_bypA_cond_Dhl && ( reg_latency[srcA0] == 5'b00001)) ? byp_AW
 
-    : (rs00_bypB_cond_Dhl && ( reg_latency[src00] == 5'b00010)) ? byp_BX0
-    : (rs00_bypB_cond_Dhl && ( reg_latency[src00] == 5'b00001)) ? byp_BW
+    : (rsA0_bypB_cond_Dhl && ( reg_latency[srcA0] == 5'b00010)) ? byp_BX0
+    : (rsA0_bypB_cond_Dhl && ( reg_latency[srcA0] == 5'b00001)) ? byp_BW
 
-    : (pending[src00] && src00_renamed && (reg_latency[src00] == 5'd0)) ? byp_ROB
+    : (pending[srcA0] && srcA0_renamed && (reg_latency[srcA0] == 5'd0)) ? byp_ROB
     :                                                byp_r0;  
 
-  wire [3:0] op01_byp_mux_sel
-    = (rs01_bypA_cond_Dhl && ( reg_latency[src01] == 5'b10000)) ? byp_AX0
-    : (rs01_bypA_cond_Dhl && ( reg_latency[src01] == 5'b01000)) ? byp_AX1
-    : (rs01_bypA_cond_Dhl && ( reg_latency[src01] == 5'b00100)) ? byp_AX2
-    : (rs01_bypA_cond_Dhl && ( reg_latency[src01] == 5'b00010)) ? byp_AX3
-    : (rs01_bypA_cond_Dhl && ( reg_latency[src01] == 5'b00001)) ? byp_AW
+  wire [3:0] opA1_byp_mux_sel
+    = (rsA1_bypA_cond_Dhl && ( reg_latency[srcA1] == 5'b10000)) ? byp_AX0
+    : (rsA1_bypA_cond_Dhl && ( reg_latency[srcA1] == 5'b01000)) ? byp_AX1
+    : (rsA1_bypA_cond_Dhl && ( reg_latency[srcA1] == 5'b00100)) ? byp_AX2
+    : (rsA1_bypA_cond_Dhl && ( reg_latency[srcA1] == 5'b00010)) ? byp_AX3
+    : (rsA1_bypA_cond_Dhl && ( reg_latency[srcA1] == 5'b00001)) ? byp_AW
 
-    : (rs01_bypB_cond_Dhl && ( reg_latency[src01] == 5'b00010)) ? byp_BX0
-    : (rs01_bypB_cond_Dhl && ( reg_latency[src01] == 5'b00001)) ? byp_BW
+    : (rsA1_bypB_cond_Dhl && ( reg_latency[srcA1] == 5'b00010)) ? byp_BX0
+    : (rsA1_bypB_cond_Dhl && ( reg_latency[srcA1] == 5'b00001)) ? byp_BW
 
-    : (pending[src01] && src01_renamed && (reg_latency[src01] == 5'd0)) ? byp_ROB
+    : (pending[srcA1] && srcA1_renamed && (reg_latency[srcA1] == 5'd0)) ? byp_ROB
     :                                                byp_r0;
 
-  wire [3:0] op10_byp_mux_sel
-    = (rs10_bypA_cond_Dhl && ( reg_latency[src10] == 5'b10000)) ? byp_AX0
-    : (rs10_bypA_cond_Dhl && ( reg_latency[src10] == 5'b01000)) ? byp_AX1
-    : (rs10_bypA_cond_Dhl && ( reg_latency[src10] == 5'b00100)) ? byp_AX2
-    : (rs10_bypA_cond_Dhl && ( reg_latency[src10] == 5'b00010)) ? byp_AX3
-    : (rs10_bypA_cond_Dhl && ( reg_latency[src10] == 5'b00001)) ? byp_AW
+  wire [3:0] opB0_byp_mux_sel
+    = (rsB0_bypA_cond_Dhl && ( reg_latency[srcB0] == 5'b10000)) ? byp_AX0
+    : (rsB0_bypA_cond_Dhl && ( reg_latency[srcB0] == 5'b01000)) ? byp_AX1
+    : (rsB0_bypA_cond_Dhl && ( reg_latency[srcB0] == 5'b00100)) ? byp_AX2
+    : (rsB0_bypA_cond_Dhl && ( reg_latency[srcB0] == 5'b00010)) ? byp_AX3
+    : (rsB0_bypA_cond_Dhl && ( reg_latency[srcB0] == 5'b00001)) ? byp_AW
 
-    : (rs10_bypB_cond_Dhl && ( reg_latency[src10] == 5'b00010)) ? byp_BX0
-    : (rs10_bypB_cond_Dhl && ( reg_latency[src10] == 5'b00001)) ? byp_BW
+    : (rsB0_bypB_cond_Dhl && ( reg_latency[srcB0] == 5'b00010)) ? byp_BX0
+    : (rsB0_bypB_cond_Dhl && ( reg_latency[srcB0] == 5'b00001)) ? byp_BW
 
-    : (pending[src10] && src10_renamed && (reg_latency[src10] == 5'd0)) ? byp_ROB
+    : (pending[srcB0] && srcB0_renamed && (reg_latency[srcB0] == 5'd0)) ? byp_ROB
     :                                                byp_r0;
 
-  wire [3:0] op11_byp_mux_sel
-    = (rs11_bypA_cond_Dhl && ( reg_latency[src11] == 5'b10000)) ? byp_AX0
-    : (rs11_bypA_cond_Dhl && ( reg_latency[src11] == 5'b01000)) ? byp_AX1
-    : (rs11_bypA_cond_Dhl && ( reg_latency[src11] == 5'b00100)) ? byp_AX2
-    : (rs11_bypA_cond_Dhl && ( reg_latency[src11] == 5'b00010)) ? byp_AX3
-    : (rs11_bypA_cond_Dhl && ( reg_latency[src11] == 5'b00001)) ? byp_AW
+  wire [3:0] opB1_byp_mux_sel
+    = (rsB1_bypA_cond_Dhl && ( reg_latency[srcB1] == 5'b10000)) ? byp_AX0
+    : (rsB1_bypA_cond_Dhl && ( reg_latency[srcB1] == 5'b01000)) ? byp_AX1
+    : (rsB1_bypA_cond_Dhl && ( reg_latency[srcB1] == 5'b00100)) ? byp_AX2
+    : (rsB1_bypA_cond_Dhl && ( reg_latency[srcB1] == 5'b00010)) ? byp_AX3
+    : (rsB1_bypA_cond_Dhl && ( reg_latency[srcB1] == 5'b00001)) ? byp_AW
 
-    : (rs11_bypB_cond_Dhl && ( reg_latency[src11] == 5'b00010)) ? byp_BX0
-    : (rs11_bypB_cond_Dhl && ( reg_latency[src11] == 5'b00001)) ? byp_BW
+    : (rsB1_bypB_cond_Dhl && ( reg_latency[srcB1] == 5'b00010)) ? byp_BX0
+    : (rsB1_bypB_cond_Dhl && ( reg_latency[srcB1] == 5'b00001)) ? byp_BW
 
-    : (pending[src11] && src11_renamed && (reg_latency[src11] == 5'd0)) ? byp_ROB
+    : (pending[srcB1] && srcB1_renamed && (reg_latency[srcB1] == 5'd0)) ? byp_ROB
     :                                                byp_r0;
 
   //----------------------------------------------------------------------
-  // Stall Logic
+  // Source Ready Logic
   //----------------------------------------------------------------------
 
-  // Scoreboard-based stall signals
-  wire op00_can_byp
-    = (func_unit[src00] == alu_inst)    ? 1'b1
-    : (func_unit[src00] == mem_inst)    ? reg_latency[src00] < 5'b10000
-    : (func_unit[src00] == muldiv_inst) ? reg_latency[src00] < 5'b00100
-    : (reg_latency[src00] == 5'b00000)  ? 1'b1
-    : 1'b0;
-  wire op01_can_byp
-    = (func_unit[src01] == alu_inst)    ? 1'b1
-    : (func_unit[src01] == mem_inst)    ? reg_latency[src01] < 5'b10000
-    : (func_unit[src01] == muldiv_inst) ? reg_latency[src01] < 5'b00100
-    : (reg_latency[src01] == 5'b00000)  ? 1'b1
-    : 1'b0;
-  wire op10_can_byp
-    = (func_unit[src10] == alu_inst)    ? 1'b1
-    : (func_unit[src10] == mem_inst)    ? reg_latency[src10] < 5'b10000
-    : (func_unit[src10] == muldiv_inst) ? reg_latency[src10] < 5'b00100
-    : (reg_latency[src10] == 5'b00000)  ? 1'b1
-    : 1'b0;
-  wire op11_can_byp
-    = (func_unit[src11] == alu_inst)    ? 1'b1
-    : (func_unit[src11] == mem_inst)    ? reg_latency[src11] < 5'b10000
-    : (func_unit[src11] == muldiv_inst) ? reg_latency[src11] < 5'b00100
-    : (reg_latency[src11] == 5'b00000)  ? 1'b1
-    : 1'b0;
-
-  wire stall_ir0 = ( ( !op00_can_byp && src00_en && src00_renamed )
-                  || ( !op01_can_byp && src01_en && src01_renamed ) )
-                          && inst_val_Ihl;
-  wire stall_ir1 = ( ( !op10_can_byp && src10_en && src10_renamed )
-                  || ( !op11_can_byp && src11_en && src11_renamed ) )
-                          && inst_val_Ihl; 
-
+  always @(*) begin
+    for( i = 0; i < 32; i = i + 1 ) begin
+      src_ready[i] = !pending[i]                  ? 1'b1
+                 : (func_unit[i] == alu_inst)     ? 1'b1
+                 : (func_unit[i] == mem_inst)     ? reg_latency[i] < 5'b10000
+                 : (func_unit[i] == muldiv_inst)  ? reg_latency[i] < 5'b00100
+                 : (reg_latency[i] == 5'b00000)   ? 1'b1
+                 : 1'b0;
+    end
+  end
 
   // initial begin
   //   for(i = 0; i < 32; i = i + 1) begin
