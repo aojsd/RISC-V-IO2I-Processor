@@ -338,6 +338,33 @@ module riscv_CoreCtrl
 
   wire inst_val_Dhl = ( !bubble_Dhl && !squash_Dhl );
 
+  // Parse instruction fields
+
+  wire   [4:0] inst_rs1_Dhl;
+  wire   [4:0] inst_rs2_Dhl;
+  wire   [4:0] inst_rd_Dhl;
+
+  riscv_InstMsgFromBits inst_msg_from_bits
+  (
+    .msg      (ir_Dhl),
+    .opcode   (),
+    .rs1      (inst_rs1_Dhl),
+    .rs2      (inst_rs2_Dhl),
+    .rd       (inst_rd_Dhl),
+    .funct3   (),
+    .funct7   (),
+    .shamt    (),
+    .imm_i    (),
+    .imm_s    (),
+    .imm_sb   (),
+    .imm_u    (),
+    .imm_uj   ()
+  );
+
+  wire [4:0] rs1 = inst_rs1_Dhl;
+  wire [4:0] rs2 = inst_rs2_Dhl;
+  wire [4:0] rd  = inst_rd_Dhl;
+
   // Instruction Decode
 
   localparam cs_sz = `RISCV_INST_MSG_CS_SZ;
@@ -415,8 +442,10 @@ module riscv_CoreCtrl
 
   wire [1:0] pc_mux_sel_Dhl = cs[`RISCV_INST_MSG_PC_SEL];
 
-  // Operand Bypassing Logic
+  // Operands
 
+  wire [4:0] rs1_addr_Dhl   = rs1;
+  wire [4:0] rs2_addr_Dhl   = rs2;
   wire       rs1_en_Dhl     = cs[`RISCV_INST_MSG_RS1_EN];
   wire       rs2_en_Dhl     = cs[`RISCV_INST_MSG_RS2_EN];
 
@@ -427,8 +456,8 @@ module riscv_CoreCtrl
 
   // Operand Mux Select
 
-  assign op0_mux_sel_Ihl = cs[`RISCV_INST_MSG_OP0_SEL];
-  assign op1_mux_sel_Ihl = cs[`RISCV_INST_MSG_OP1_SEL];
+  wire [1:0] op0_mux_sel_Dhl = cs[`RISCV_INST_MSG_OP0_SEL];
+  wire [2:0] op1_mux_sel_Dhl = cs[`RISCV_INST_MSG_OP1_SEL];
 
   // ALU Function
 
@@ -436,7 +465,7 @@ module riscv_CoreCtrl
 
   // Muldiv Function
 
-  wire [2:0] muldivreq_msg_fn_Ihl = cs[`RISCV_INST_MSG_MULDIV_FN];
+  wire [2:0] muldivreq_msg_fn_Dhl = cs[`RISCV_INST_MSG_MULDIV_FN];
 
   // Muldiv Controls
 
@@ -523,6 +552,7 @@ module riscv_CoreCtrl
   reg  [2:0] br_sel_Ihl;
   reg  [3:0] alu_fn_Ihl;
   reg        muldivreq_val_Ihl;
+  reg        muldivreq_msg_fn_Ihl;
   reg        muldiv_mux_sel_Ihl;
   reg        execute_mux_sel_Ihl;
   reg        is_load_Ihl;
@@ -544,8 +574,12 @@ module riscv_CoreCtrl
   reg [4:0] inst_latency_Ihl;
   reg [2:0] inst_func_unit_Ihl;
 
+  reg [4:0] rs1_addr_Ihl;
+  reg [4:0] rs2_addr_Ihl;
   reg       rs1_en_Ihl;
   reg       rs2_en_Ihl;
+  reg       op0_mux_sel_Ihl;
+  reg       op1_mux_sel_Ihl;
 
   // Pipeline Controls
 
@@ -559,6 +593,7 @@ module riscv_CoreCtrl
       br_sel_Ihl           <= br_sel_Dhl;
       alu_fn_Ihl           <= alu_fn_Dhl;
       muldivreq_val_Ihl    <= muldivreq_val_Dhl;
+      muldivreq_msg_fn_Ihl <= muldivreq_msg_fn_Dhl;
       muldiv_mux_sel_Ihl   <= muldiv_mux_sel_Dhl;
       execute_mux_sel_Ihl  <= execute_mux_sel_Dhl;
       is_load_Ihl          <= is_load_Dhl;
@@ -577,8 +612,12 @@ module riscv_CoreCtrl
       inst_latency_Ihl     <= inst_latency_Dhl;
       inst_func_unit_Ihl   <= inst_func_unit_Dhl;
 
+      rs1_addr_Ihl         <= rs1_addr_Dhl;
+      rs2_addr_Ihl         <= rs2_addr_Dhl;
       rs1_en_Ihl           <= rs1_en_Dhl;
       rs2_en_Ihl           <= rs2_en_Dhl;
+      op0_mux_sel_Ihl      <= op0_mux_sel_Dhl;
+      op1_mux_sel_Ihl      <= op1_mux_sel_Dhl;
 
       brj_taken_Ihl        <= brj_taken_Dhl;
       pc_mux_sel_Ihl       <= pc_mux_sel_Dhl;
@@ -595,33 +634,6 @@ module riscv_CoreCtrl
   wire inst_val_Ihl = ( !bubble_Ihl && !squash_Ihl );
 
   assign inst_Ihl = ir_Ihl;
-
-  // Parse instruction fields
-
-  wire   [4:0] inst_rs1_Ihl;
-  wire   [4:0] inst_rs2_Ihl;
-  wire   [4:0] inst_rd_Ihl;
-
-  riscv_InstMsgFromBits inst_msg_from_bits
-  (
-    .msg      (ir_Ihl),
-    .opcode   (),
-    .rs1      (inst_rs1_Ihl),
-    .rs2      (inst_rs2_Ihl),
-    .rd       (inst_rd_Ihl),
-    .funct3   (),
-    .funct7   (),
-    .shamt    (),
-    .imm_i    (),
-    .imm_s    (),
-    .imm_sb   (),
-    .imm_u    (),
-    .imm_uj   ()
-  );
-
-  wire [4:0] rs1 = inst_rs1_Ihl;
-  wire [4:0] rs2 = inst_rs2_Ihl;
-  wire [4:0] rd  = inst_rd_Ihl;
 
   //----------------------------------------------------------------------
   // Scoreboard
@@ -650,9 +662,9 @@ module riscv_CoreCtrl
   (
     .clk                 (clk),
     .reset               (reset),
-    .src0                (rs1),
+    .src0                (rs1_addr_Ihl),
     .src0_en             (rs1_en_Ihl),
-    .src1                (rs2),
+    .src1                (rs2_addr_Ihl),
     .src1_en             (rs2_en_Ihl),
     .dst                 (rf_waddr_Ihl),
     .dst_en              (rf_wen_Ihl),
@@ -766,8 +778,8 @@ module riscv_CoreCtrl
 
   // Muldiv request
 
-  assign muldivreq_val = muldivreq_val_Dhl && inst_val_Ihl && !(stall_Ihl);
-  assign muldivresp_rdy = muldivreq_val_X3hl && inst_val_X3hl;
+  assign muldivreq_val = muldivreq_val_Ihl && inst_val_Ihl && !(stall_Ihl);
+  assign muldivresp_rdy = !stall_X3hl;
 
   // Only send a valid dmem request if not stalled
 
