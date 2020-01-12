@@ -27,6 +27,7 @@ module riscv_CoreDpath
 
   // Controls Signals (ctrl->dpath)
 
+
   input   [1:0] pc_mux_sel_Phl,
   input   [2:0] op0_byp_mux_sel_Ihl,
   input   [3:0] op0_byp_rob_slot_Ihl,
@@ -61,8 +62,14 @@ module riscv_CoreDpath
   input  [ 3:0] rob_commit_slot_Chl,
   input  [ 4:0] rob_commit_waddr_Chl,
 
-  // Control Signals (dpath->ctrl)
+  // pc from iq
+  input [31:0] pc_Ihl,
+  input [31:0] pc_plus4_Ihl,
 
+  // Control Signals (dpath->ctrl)
+  output [31:0] pc_Dhl,
+  output [31:0] pc_plus4_Dhl,
+  
   output        branch_cond_eq_Xhl,
   output        branch_cond_ne_Xhl,
   output        branch_cond_lt_Xhl,
@@ -148,15 +155,7 @@ module riscv_CoreDpath
   //----------------------------------------------------------------------
   // I <- D
   //----------------------------------------------------------------------
-  reg [31:0] pc_Ihl;
-  reg [31:0] pc_plus4_Ihl;
-
-  always @ (posedge clk) begin
-    if( !stall_Ihl ) begin
-      pc_Ihl       <= pc_Dhl;
-      pc_plus4_Ihl <= pc_plus4_Dhl;
-    end
-  end
+  
 
   //--------------------------------------------------------------------
   // Issue Stage (Register Read)

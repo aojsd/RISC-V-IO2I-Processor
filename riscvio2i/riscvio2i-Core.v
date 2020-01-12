@@ -92,6 +92,10 @@ module riscv_Core
   wire        branch_cond_geu_Xhl;
   wire [31:0] proc2csr_data_Whl;
 
+  wire [31:0] pc_Dhl;
+  wire [31:0] pc_plus4_Dhl;
+  wire [31:0] pc_Ihl;
+  wire [31:0] pc_plus4_Ihl;
   //----------------------------------------------------------------------
   // Pack Memory Request Messages
   //----------------------------------------------------------------------
@@ -192,9 +196,13 @@ module riscv_Core
     .stall_Xhl              (stall_Xhl),
     .stall_Mhl              (stall_Mhl),
     .stall_Whl              (stall_Whl),
+    .pc_Ihl                  (pc_Ihl),
+    .pc_plus4_Ihl            (pc_plus4_Ihl),
+    
 
     // Control Signals (dpath->ctrl)
-
+    .pc_Dhl                 (pc_Dhl),
+    .pc_plus4_Dhl           (pc_plus4_Dhl),
     .branch_cond_eq_Xhl	    (branch_cond_eq_Xhl),
     .branch_cond_ne_Xhl	    (branch_cond_ne_Xhl),
     .branch_cond_lt_Xhl	    (branch_cond_lt_Xhl),
@@ -261,9 +269,13 @@ module riscv_Core
     .stall_Xhl               (stall_Xhl),
     .stall_Mhl               (stall_Mhl),
     .stall_Whl               (stall_Whl),
+    .pc_Ihl                  (pc_Ihl),
+    .pc_plus4_Ihl            (pc_plus4_Ihl),
+    
 
     // Control Signals (dpath->ctrl)
-
+    .pc_Dhl                  (pc_Dhl),
+    .pc_plus4_Dhl            (pc_plus4_Dhl),
     .branch_cond_eq_Xhl	     (branch_cond_eq_Xhl),
     .branch_cond_ne_Xhl	     (branch_cond_ne_Xhl),
     .branch_cond_lt_Xhl	     (branch_cond_lt_Xhl),

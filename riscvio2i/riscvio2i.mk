@@ -13,6 +13,7 @@ riscvio2i_srcs = \
   riscvio2i-CoreDpathAlu.v \
   riscvio2i-CoreScoreboard.v \
   riscvio2i-CoreReorderBuffer.v \
+  riscvio2i-CoreIssueQueue.v \
   riscvio2i-CoreCtrl.v \
   riscvio2i-Core.v \
   riscvio2i-InstMsg.v \

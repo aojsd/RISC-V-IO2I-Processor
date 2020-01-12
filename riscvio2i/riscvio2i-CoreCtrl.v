@@ -8,6 +8,7 @@
 `include "riscvio2i-InstMsg.v"
 `include "riscvio2i-CoreScoreboard.v"
 `include "riscvio2i-CoreReorderBuffer.v"
+`include "riscvio2i-CoreIssueQueue.v"
 
 module riscv_CoreCtrl
 (
@@ -29,7 +30,7 @@ module riscv_CoreCtrl
   input         dmemresp_val,
 
   // Controls Signals (ctrl->dpath)
-
+  
   output  [1:0] pc_mux_sel_Phl,
   output  [2:0] op0_byp_mux_sel_Ihl,
   output  [3:0] op0_byp_rob_slot_Ihl,
@@ -63,7 +64,11 @@ module riscv_CoreCtrl
   output        stall_Mhl,
   output        stall_Whl,
 
+  output [31:0] pc_Ihl,
+  output [31:0] pc_plus4_Ihl,
   // Control Signals (dpath->ctrl)
+  input [31:0]  pc_Dhl,
+  input [31:0]  pc_plus4_Dhl,
 
   input         branch_cond_eq_Xhl,
   input         branch_cond_ne_Xhl,
@@ -439,11 +444,17 @@ module riscv_CoreCtrl
 
   // Squash instruction in D if a valid branch in X is taken
 
+  wire rf_wen_Dhl = cs_Dhl[`RISCV_INST_MSG_RF_WEN];
+  wire [4:0] rf_waddr_Dhl = cs_Dhl[`RISCV_INST_MSG_RF_WADDR];
+  wire [3:0] rob_fill_slot_Dhl;
+
   wire squash_Dhl = ( inst_val_Ihl && brj_taken_Ihl )
                   ||( inst_val_Xhl && brj_taken_Xhl );
 
   // Aggregate Stall Signal
-  assign stall_Dhl = stall_Ihl;
+                      
+  assign stall_Dhl = !iq_enqueue_rdy ||
+                     (inst_val_Dhl && !rob_req_rdy_Dhl);
 
   // Next bubble bit
 
@@ -453,38 +464,61 @@ module riscv_CoreCtrl
                        :                       1'bx;
 
   //----------------------------------------------------------------------
-  // I <- D
+  // IQ <- D
+  //----------------------------------------------------------------------
+  wire iq_enqueue_val = inst_val_Dhl && !bubble_next_Dhl;
+  wire iq_dequeue_rdy = !stall_Xhl;
+  wire iq_is_currently_issueable = !stall_Ihl && iq_dequeue_val;
+  wire iq_enqueue_rdy;
+  wire iq_dequeue_val;
+
+  wire [5:0] iq_dequeue_slot_Ihl;
+  riscv_CoreIssueQueue issue_queue
+  (
+    .clk                       (clk),
+    .reset                     (reset),
+    
+    .iq_enqueue_val            (iq_enqueue_val),
+    .iq_enqueue_rdy            (iq_enqueue_rdy),
+    
+    .rs1_Dhl                   (rs1_Dhl),
+    .rs2_Dhl                   (rs2_Dhl),
+    .rd_Dhl                    (rd_Dhl),
+    .ir_Dhl                    (ir_Dhl),
+    .cs_Dhl                    (cs_Dhl),
+    .rob_fill_slot_Dhl         (rob_fill_slot_Dhl),
+    .rob_fill_slot_Ihl         (rob_fill_slot_Ihl),
+    .iq_dequeue_val            (iq_dequeue_val),
+    .iq_dequeue_rdy            (iq_dequeue_rdy),
+    .iq_is_currently_issueable (iq_is_currently_issueable),
+    .iq_dequeue_slot           (iq_dequeue_slot_Ihl),
+    .iq_jmp_clear_slot         (iq_dequeue_slot_Xhl),
+    .iq_jump_clear_val         (brj_taken_Xhl), //on brj in Xhl, we remove all entries after the jump slot
+    .pc_Ihl                    (pc_Ihl),
+    .pc_plus4_Ihl              (pc_plus4_Ihl),
+    .pc_Dhl                    (pc_Dhl),
+    .pc_plus4_Dhl              (pc_plus4_Dhl),
+
+
+    .rs1_Ihl                   (rs1_Ihl),
+    .rs2_Ihl                   (rs2_Ihl),
+    .rd_Ihl                    (rd_Ihl),
+    .ir_Ihl                    (ir_Ihl),
+    .cs_Ihl                    (cs_Ihl)
+  );
+
+  //----------------------------------------------------------------------
+  // I <- IQ
   //----------------------------------------------------------------------
 
-  reg [31:0] ir_Ihl;
-  reg [cs_sz-1:0] cs_Ihl;
+  wire [31:0] ir_Ihl;
+  wire [cs_sz-1:0] cs_Ihl;
 
-  reg [4:0] rs1_Ihl;
-  reg [4:0] rs2_Ihl;
-  reg [4:0] rd_Ihl;
+  wire [4:0] rs1_Ihl;
+  wire [4:0] rs2_Ihl;
+  wire [4:0] rd_Ihl;
 
-  
-
-  reg        bubble_Ihl;
-
-
-  always @ ( posedge clk ) begin
-    if ( reset ) begin
-      bubble_Ihl <= 1'b1;
-    end
-    else if( !stall_Ihl ) begin
-      ir_Ihl               <= ir_Dhl;
-      cs_Ihl               <= cs_Dhl;
-
-      rs1_Ihl              <= rs1_Dhl;
-      rs2_Ihl              <= rs2_Dhl;
-      rd_Ihl               <= rd_Dhl;
-
-      bubble_Ihl           <= bubble_next_Dhl;
-    end
-
-  end
-
+  wire bubble_Ihl = (reset)? 1'b1: !iq_dequeue_val;
 
   //----------------------------------------------------------------------
   // Issue Logic
@@ -561,7 +595,7 @@ module riscv_CoreCtrl
   wire [11:0] csr_addr_Ihl  = ir_Ihl[31:20];
 
 
-  wire inst_val_Ihl = ( !bubble_Ihl && !squash_Ihl );
+  wire inst_val_Ihl = (!bubble_Ihl && !squash_Ihl && iq_dequeue_val);
 
   assign inst_Ihl = ir_Ihl;
 
@@ -648,7 +682,6 @@ module riscv_CoreCtrl
   
   assign stall_Ihl = ( stall_Xhl ||
                       (inst_val_Ihl && stall_sb_Ihl ) ||
-                      (inst_val_Ihl && !rob_req_rdy_Ihl) ||
                       (inst_val_Ihl && stall_muldiv_Ihl));
 
   // Next bubble bit
@@ -681,7 +714,7 @@ module riscv_CoreCtrl
   reg [11:0] csr_addr_Xhl;
 
   reg        bubble_Xhl;
-
+  reg [5:0]  iq_dequeue_slot_Xhl;
   // Pipeline Controls
 
   always @ ( posedge clk ) begin
@@ -708,6 +741,7 @@ module riscv_CoreCtrl
       csr_addr_Xhl         <= csr_addr_Ihl;
 
       bubble_Xhl           <= bubble_next_Ihl;
+      iq_dequeue_slot_Xhl  <= iq_dequeue_slot_Ihl;
     end
 
   end
@@ -1017,10 +1051,10 @@ module riscv_CoreCtrl
   // Reorder Buffer
   //----------------------------------------------------------------------
 
-  wire rob_req_val_Ihl = inst_val_Ihl && !stall_Ihl && rf_wen_Ihl && rf_waddr_Ihl != 5'b0;
+  wire rob_req_val_Dhl = inst_val_Dhl && !stall_Dhl && rf_wen_Dhl && rf_waddr_Dhl != 5'b0;
   wire rob_fill_val = inst_val_Whl && rf_wen_Whl;
 
-  wire rob_req_rdy_Ihl;
+  wire rob_req_rdy_Dhl;
 
   wire       rob_fill_wen_Whl = inst_val_Whl && rf_wen_Whl && rf_waddr_Whl != 5'b0;
 
@@ -1032,10 +1066,10 @@ module riscv_CoreCtrl
   (
     .clk                       (clk),
     .reset                     (reset),
-    .rob_alloc_req_val         (rob_req_val_Ihl),
-    .rob_alloc_req_rdy         (rob_req_rdy_Ihl),
-    .rob_alloc_req_preg        (rf_waddr_Ihl),
-    .rob_alloc_resp_slot       (rob_fill_slot_Ihl),
+    .rob_alloc_req_val         (rob_req_val_Dhl),
+    .rob_alloc_req_rdy         (rob_req_rdy_Dhl),
+    .rob_alloc_req_preg        (rf_waddr_Dhl),
+    .rob_alloc_resp_slot       (rob_fill_slot_Dhl),
     .rob_fill_val              (rob_fill_wen_Whl),
     .rob_fill_slot             (rob_fill_slot_Whl),
     .rob_commit_slot           (rob_commit_slot_Chl),
