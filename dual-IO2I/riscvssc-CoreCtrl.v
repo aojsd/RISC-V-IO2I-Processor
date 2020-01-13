@@ -8,6 +8,7 @@
 `include "riscvssc-InstMsg.v"
 `include "riscvssc-CoreScoreboard.v"
 `include "riscvssc-CoreReorderBuffer.v"
+`include "riscvssc-CoreIssueQueue.v"
 
 module riscv_CoreCtrl
 (
@@ -99,6 +100,9 @@ module riscv_CoreCtrl
   output [ 4:0] rob_commit_slot_2_Chl,
   output [ 4:0] rob_commit_waddr_2_Chl,
 
+  // iq signals
+  output [ 4:0]  iq_slot_A_Dhl,
+  output [ 4:0]  iq_slot_A_Ihl,
   // CSR Status
 
   output [31:0] csr_status
@@ -848,7 +852,7 @@ module riscv_CoreCtrl
 
   wire stall_br_Dhl = spec_Dhl && (br0_sel_Dhl || br1_sel_Dhl);
 
-  wire stall_agg_Dhl = stall_Ihl || ( (stall_rob_Dhl || stall_br_Dhl) && inst_val_Dhl);
+  wire stall_agg_Dhl = !iq_enqueue_rdy || ( (stall_rob_Dhl || stall_br_Dhl) && inst_val_Dhl);
 
   wire stall_Dhl = stall_agg_Dhl || double_br_Dhl;
 
@@ -860,77 +864,238 @@ module riscv_CoreCtrl
                        :                       1'bx;
 
   //----------------------------------------------------------------------
+  // IQ <- D
+  //----------------------------------------------------------------------
+  wire iq_enqueue_val0 = inst_val_Dhl && !squash_ir0_Dhl && !stall_Dhl;
+  wire iq_enqueue_val1 = inst_val_Dhl && !squash_Dhl && !stall_Dhl;
+  wire iq_enqueue_spec0= rob_req_spec_1_Dhl;
+  wire iq_enqueue_spec1= rob_req_spec_2_Dhl;
+  wire iq_dequeue_rdy0 = !stall_Ihl;
+  wire iq_dequeue_rdy1 = !stall_Ihl;
+  wire iq_enqueue_rdy;
+  wire dequeue_val0;
+  wire dequeue_val1;
+  riscv_CoreIssueQueue issue_queue(
+    .clk (clk),
+    .reset (reset),
+
+    .brj_taken_X0hl (brj_taken_X0hl),
+    .brj_resolved_X0hl (brj_resolved_X0hl),
+    .squash_first_I_inst_Ihl (squash_first_I_inst_Ihl),
+    
+    .iq_enqueue_val0    (iq_enqueue_val0),
+    .iq_enqueue_val1    (iq_enqueue_val1),
+    .iq_enqueue_rdy     (iq_enqueue_rdy),
+
+    .iq_enqueue_spec0   (iq_enqueue_spec0),
+    .iq_enqueue_spec1   (iq_enqueue_spec1),
+    .iq_dequeue_rdy0    (iq_dequeue_rdy0),
+    .iq_dequeue_rdy1    (iq_dequeue_rdy1),
+    .iq_dequeue_val0    (dequeue_val0),
+    .iq_dequeue_val1    (dequeue_val1),
+    .iq_enqueue_slot0   (iq_slot_A_Dhl),
+    .iq_dequeue_slot0   (iq_slot_A_Ihl),
+    .sb_src_ready (sb_src_ready),
+
+    
+    .iq_ir0_Dhl (ir0_Dhl),
+    .iq_ir0_squashed_Dhl (!rob_req_val_1_Dhl),
+    .iq_rf0_wen_Dhl (rf0_wen_Dhl),
+    .iq_rf0_waddr_Dhl (rf0_waddr_Dhl),
+    .iq_alu0_fn_Dhl (alu0_fn_Dhl),
+    .iq_br0_sel_Dhl (br0_sel_Dhl),
+    .iq_j0_en_Dhl (j0_en_Dhl),
+    .iq_pc0_mux_sel_Dhl (pc0_mux_sel_Dhl),
+    .iq_muldivreq0_val_Dhl (muldivreq0_val_Dhl),
+    .iq_muldivreq0_msg_fn_Dhl (muldivreq0_msg_fn_Dhl),
+    .iq_muldiv0_mux_sel_Dhl (muldiv0_mux_sel_Dhl),
+    .iq_execute0_mux_sel_Dhl (execute0_mux_sel_Dhl),
+    .iq_dmemreq0_msg_rw_Dhl (dmemreq0_msg_rw_Dhl),
+    .iq_dmemreq0_msg_len_Dhl (dmemreq0_msg_len_Dhl),
+    .iq_dmemreq0_val_Dhl (dmemreq0_val_Dhl),
+    .iq_dmemresp0_mux_sel_Dhl (dmemresp0_mux_sel_Dhl),
+    .iq_memex0_mux_sel_Dhl (memex0_mux_sel_Dhl),
+    .iq_csr0_wen_Dhl (csr0_wen_Dhl),
+    .iq_csr0_addr_Dhl (csr0_addr_Dhl),
+    .iq_ir1_Dhl (ir1_Dhl),
+
+    .iq_ir1_squashed_Dhl (!rob_req_val_2_Dhl),
+    .iq_rf1_wen_Dhl (rf1_wen_Dhl),
+    .iq_rf1_waddr_Dhl (rf1_waddr_Dhl),
+    .iq_alu1_fn_Dhl (alu1_fn_Dhl),
+    .iq_br1_sel_Dhl (br1_sel_Dhl),
+    .iq_j1_en_Dhl (j1_en_Dhl),
+    .iq_pc1_mux_sel_Dhl (pc1_mux_sel_Dhl),
+    .iq_muldivreq1_val_Dhl (muldivreq1_val_Dhl),
+    .iq_muldivreq1_msg_fn_Dhl (muldivreq1_msg_fn_Dhl),
+    .iq_muldiv1_mux_sel_Dhl (muldiv1_mux_sel_Dhl),
+    .iq_execute1_mux_sel_Dhl (execute1_mux_sel_Dhl),
+    .iq_dmemreq1_msg_rw_Dhl (dmemreq1_msg_rw_Dhl),
+    .iq_dmemreq1_msg_len_Dhl (dmemreq1_msg_len_Dhl),
+    .iq_dmemreq1_val_Dhl (dmemreq1_val_Dhl),
+    .iq_dmemresp1_mux_sel_Dhl (dmemresp1_mux_sel_Dhl),
+    .iq_memex1_mux_sel_Dhl (memex1_mux_sel_Dhl),
+    .iq_csr1_wen_Dhl (csr1_wen_Dhl),
+    .iq_csr1_addr_Dhl (csr1_addr_Dhl),
+    .iq_rs00_addr_Dhl (rs00_addr_Dhl),
+    .iq_rs01_addr_Dhl (rs01_addr_Dhl),
+    .iq_rs10_addr_Dhl (rs10_addr_Dhl),
+    .iq_rs11_addr_Dhl (rs11_addr_Dhl),
+    .iq_rs00_en_Dhl (rs00_en_Dhl),
+    .iq_rs01_en_Dhl (rs01_en_Dhl),
+    .iq_rs10_en_Dhl (rs10_en_Dhl),
+    .iq_rs11_en_Dhl (rs11_en_Dhl),
+    .iq_rob_fill_slot_0_Dhl (rob_fill_slot_0_Dhl),
+    .iq_rob_fill_slot_1_Dhl (rob_fill_slot_1_Dhl),
+    .iq_rs00_renamed_Dhl (rs00_renamed_Dhl),
+    .iq_rs01_renamed_Dhl (rs01_renamed_Dhl),
+    .iq_rs10_renamed_Dhl (rs10_renamed_Dhl),
+    .iq_rs11_renamed_Dhl (rs11_renamed_Dhl),
+    .iq_rs00_rt_slot_Dhl (rs00_rt_slot_Dhl),
+    .iq_rs01_rt_slot_Dhl (rs01_rt_slot_Dhl),
+    .iq_rs10_rt_slot_Dhl (rs10_rt_slot_Dhl),
+    .iq_rs11_rt_slot_Dhl (rs11_rt_slot_Dhl),
+    .iq_op00_mux_sel_Dhl (op00_mux_sel_Dhl),
+    .iq_op01_mux_sel_Dhl (op01_mux_sel_Dhl),
+    .iq_op10_mux_sel_Dhl (op10_mux_sel_Dhl),
+    .iq_op11_mux_sel_Dhl (op11_mux_sel_Dhl),
+
+    //outputs
+    
+    .iq_ir0_Ihl  (ir0_Ihl),
+    .iq_ir0_squashed_Ihl (ir0_squashed_Ihl),
+    .iq_rf0_wen_Ihl  (rf0_wen_Ihl),
+    .iq_rf0_waddr_Ihl  (rf0_waddr_Ihl),
+    .iq_alu0_fn_Ihl  (alu0_fn_Ihl),
+    .iq_br0_sel_Ihl  (br0_sel_Ihl),
+    .iq_j0_en_Ihl  (j0_en_Ihl),
+    .iq_pc0_mux_sel_Ihl  (pc0_mux_sel_Ihl),
+    .iq_muldivreq0_val_Ihl (muldivreq0_val_Ihl),
+    .iq_muldivreq0_msg_fn_Ihl  (muldivreq0_msg_fn_Ihl),
+    .iq_muldiv0_mux_sel_Ihl  (muldiv0_mux_sel_Ihl),
+    .iq_execute0_mux_sel_Ihl (execute0_mux_sel_Ihl),
+    .iq_dmemreq0_msg_rw_Ihl  (dmemreq0_msg_rw_Ihl),
+    .iq_dmemreq0_msg_len_Ihl (dmemreq0_msg_len_Ihl),
+    .iq_dmemreq0_val_Ihl (dmemreq0_val_Ihl),
+    .iq_dmemresp0_mux_sel_Ihl  (dmemresp0_mux_sel_Ihl),
+    .iq_memex0_mux_sel_Ihl (memex0_mux_sel_Ihl),
+    .iq_csr0_wen_Ihl (csr0_wen_Ihl),
+    .iq_csr0_addr_Ihl  (csr0_addr_Ihl),
+
+    .iq_ir1_Ihl  (ir1_Ihl),
+    .iq_ir1_squashed_Ihl (ir1_squashed_Ihl),
+    .iq_rf1_wen_Ihl  (rf1_wen_Ihl),
+    .iq_rf1_waddr_Ihl  (rf1_waddr_Ihl),
+    .iq_alu1_fn_Ihl  (alu1_fn_Ihl),
+    .iq_br1_sel_Ihl  (br1_sel_Ihl),
+    .iq_j1_en_Ihl  (j1_en_Ihl),
+    .iq_pc1_mux_sel_Ihl  (pc1_mux_sel_Ihl),
+    .iq_muldivreq1_val_Ihl (muldivreq1_val_Ihl),
+    .iq_muldivreq1_msg_fn_Ihl  (muldivreq1_msg_fn_Ihl),
+    .iq_muldiv1_mux_sel_Ihl  (muldiv1_mux_sel_Ihl),
+    .iq_execute1_mux_sel_Ihl (execute1_mux_sel_Ihl),
+    .iq_dmemreq1_msg_rw_Ihl  (dmemreq1_msg_rw_Ihl),
+    .iq_dmemreq1_msg_len_Ihl (dmemreq1_msg_len_Ihl),
+    .iq_dmemreq1_val_Ihl (dmemreq1_val_Ihl),
+    .iq_dmemresp1_mux_sel_Ihl  (dmemresp1_mux_sel_Ihl),
+    .iq_memex1_mux_sel_Ihl (memex1_mux_sel_Ihl),
+    .iq_csr1_wen_Ihl (csr1_wen_Ihl),
+    .iq_csr1_addr_Ihl  (csr1_addr_Ihl),
+    .iq_rs00_addr_Ihl  (rs00_addr_Ihl),
+    .iq_rs01_addr_Ihl  (rs01_addr_Ihl),
+    .iq_rs10_addr_Ihl  (rs10_addr_Ihl),
+    .iq_rs11_addr_Ihl  (rs11_addr_Ihl),
+    .iq_rs00_en_Ihl  (rs00_en_Ihl),
+    .iq_rs01_en_Ihl  (rs01_en_Ihl),
+    .iq_rs10_en_Ihl  (rs10_en_Ihl),
+    .iq_rs11_en_Ihl  (rs11_en_Ihl),
+    .iq_rob_fill_slot_0_Ihl  (rob_fill_slot_0_Ihl),
+    .iq_rob_fill_slot_1_Ihl  (rob_fill_slot_1_Ihl),
+    .iq_rs00_renamed_Ihl (rs00_renamed_Ihl),
+    .iq_rs01_renamed_Ihl (rs01_renamed_Ihl),
+    .iq_rs10_renamed_Ihl (rs10_renamed_Ihl),
+    .iq_rs11_renamed_Ihl (rs11_renamed_Ihl),
+    .iq_rs00_rt_slot_Ihl (rs00_rt_slot_Ihl),
+    .iq_rs01_rt_slot_Ihl (rs01_rt_slot_Ihl),
+    .iq_rs10_rt_slot_Ihl (rs10_rt_slot_Ihl),
+    .iq_rs11_rt_slot_Ihl (rs11_rt_slot_Ihl),
+    .iq_op00_mux_sel_Ihl (op00_mux_sel_Ihl),
+    .iq_op01_mux_sel_Ihl (op01_mux_sel_Ihl),
+    .iq_op10_mux_sel_Ihl (op10_mux_sel_Ihl),
+    .iq_op11_mux_sel_Ihl (op11_mux_sel_Ihl)
+  );
+  //----------------------------------------------------------------------
   // I <- D
   //----------------------------------------------------------------------
 
   reg         bubble_Ihl;
 
-  reg [31:0]  ir0_Ihl;
-  reg         ir0_squashed_Ihl;
-  reg         rf0_wen_Ihl;
-  reg  [4:0]  rf0_waddr_Ihl;
-  reg  [3:0]  alu0_fn_Ihl;
-  reg  [2:0]  br0_sel_Ihl;
-  reg         j0_en_Ihl;
-  reg  [1:0]  pc0_mux_sel_Ihl;
-  reg         muldivreq0_val_Ihl;
-  reg  [2:0]  muldivreq0_msg_fn_Ihl;
-  reg         muldiv0_mux_sel_Ihl;
-  reg         execute0_mux_sel_Ihl;
-  reg         dmemreq0_msg_rw_Ihl;
-  reg  [1:0]  dmemreq0_msg_len_Ihl;
-  reg         dmemreq0_val_Ihl;
-  reg  [2:0]  dmemresp0_mux_sel_Ihl;
-  reg         memex0_mux_sel_Ihl;
-  reg         csr0_wen_Ihl;
-  reg [11:0]  csr0_addr_Ihl;
+  wire [31:0]  ir0_Ihl;
+  wire         ir0_squashed_Ihl;
+  wire         rf0_wen_Ihl;
+  wire  [4:0]  rf0_waddr_Ihl;
+  wire  [3:0]  alu0_fn_Ihl;
+  wire  [2:0]  br0_sel_Ihl;
+  wire         j0_en_Ihl;
+  wire  [1:0]  pc0_mux_sel_Ihl;
+  wire         muldivreq0_val_Ihl;
+  wire  [2:0]  muldivreq0_msg_fn_Ihl;
+  wire         muldiv0_mux_sel_Ihl;
+  wire         execute0_mux_sel_Ihl;
+  wire         dmemreq0_msg_rw_Ihl;
+  wire  [1:0]  dmemreq0_msg_len_Ihl;
+  wire         dmemreq0_val_Ihl;
+  wire  [2:0]  dmemresp0_mux_sel_Ihl;
+  wire         memex0_mux_sel_Ihl;
+  wire         csr0_wen_Ihl;
+  wire [11:0]  csr0_addr_Ihl;
 
-  reg [31:0]  ir1_Ihl;
-  reg         ir1_squashed_Ihl;
-  reg         rf1_wen_Ihl;
-  reg  [4:0]  rf1_waddr_Ihl;
-  reg  [3:0]  alu1_fn_Ihl;
-  reg  [2:0]  br1_sel_Ihl;
-  reg         j1_en_Ihl;
-  reg  [1:0]  pc1_mux_sel_Ihl;
-  reg         muldivreq1_val_Ihl;
-  reg  [2:0]  muldivreq1_msg_fn_Ihl;
-  reg         muldiv1_mux_sel_Ihl;
-  reg         execute1_mux_sel_Ihl;
-  reg         dmemreq1_msg_rw_Ihl;
-  reg  [1:0]  dmemreq1_msg_len_Ihl;
-  reg         dmemreq1_val_Ihl;
-  reg  [2:0]  dmemresp1_mux_sel_Ihl;
-  reg         memex1_mux_sel_Ihl;
-  reg         csr1_wen_Ihl;
-  reg [11:0]  csr1_addr_Ihl;
+  wire [31:0]  ir1_Ihl;
+  wire         ir1_squashed_Ihl;
+  wire         rf1_wen_Ihl;
+  wire  [4:0]  rf1_waddr_Ihl;
+  wire  [3:0]  alu1_fn_Ihl;
+  wire  [2:0]  br1_sel_Ihl;
+  wire         j1_en_Ihl;
+  wire  [1:0]  pc1_mux_sel_Ihl;
+  wire         muldivreq1_val_Ihl;
+  wire  [2:0]  muldivreq1_msg_fn_Ihl;
+  wire         muldiv1_mux_sel_Ihl;
+  wire         execute1_mux_sel_Ihl;
+  wire         dmemreq1_msg_rw_Ihl;
+  wire  [1:0]  dmemreq1_msg_len_Ihl;
+  wire         dmemreq1_val_Ihl;
+  wire  [2:0]  dmemresp1_mux_sel_Ihl;
+  wire         memex1_mux_sel_Ihl;
+  wire         csr1_wen_Ihl;
+  wire [11:0]  csr1_addr_Ihl;
 
-  reg  [4:0]  rs00_addr_Ihl;
-  reg  [4:0]  rs01_addr_Ihl;
-  reg  [4:0]  rs10_addr_Ihl;
-  reg  [4:0]  rs11_addr_Ihl;
-  reg         rs00_en_Ihl;
-  reg         rs01_en_Ihl;
-  reg         rs10_en_Ihl;
-  reg         rs11_en_Ihl;
-  reg  [4:0]  rob_fill_slot_0_Ihl;
-  reg  [4:0]  rob_fill_slot_1_Ihl;
-  reg         rob_fill_val_0_Ihl;
-  reg         rob_fill_val_1_Ihl;
+  wire  [4:0]  rs00_addr_Ihl;
+  wire  [4:0]  rs01_addr_Ihl;
+  wire  [4:0]  rs10_addr_Ihl;
+  wire  [4:0]  rs11_addr_Ihl;
+  wire         rs00_en_Ihl;
+  wire         rs01_en_Ihl;
+  wire         rs10_en_Ihl;
+  wire         rs11_en_Ihl;
+  wire  [4:0]  rob_fill_slot_0_Ihl;
+  wire  [4:0]  rob_fill_slot_1_Ihl;
+  wire         rob_fill_val_0_Ihl;
+  wire         rob_fill_val_1_Ihl;
 
-  reg         rs00_renamed_Ihl;
-  reg         rs01_renamed_Ihl;
-  reg         rs10_renamed_Ihl;
-  reg         rs11_renamed_Ihl;
-  reg  [4:0]  rs00_rt_slot_Ihl;
-  reg  [4:0]  rs01_rt_slot_Ihl;
-  reg  [4:0]  rs10_rt_slot_Ihl;
-  reg  [4:0]  rs11_rt_slot_Ihl;
+  wire         rs00_renamed_Ihl;
+  wire         rs01_renamed_Ihl;
+  wire         rs10_renamed_Ihl;
+  wire         rs11_renamed_Ihl;
+  wire  [4:0]  rs00_rt_slot_Ihl;
+  wire  [4:0]  rs01_rt_slot_Ihl;
+  wire  [4:0]  rs10_rt_slot_Ihl;
+  wire  [4:0]  rs11_rt_slot_Ihl;
 
-  reg  [1:0]  op00_mux_sel_Ihl;
-  reg  [2:0]  op01_mux_sel_Ihl;
-  reg  [1:0]  op10_mux_sel_Ihl;
-  reg  [2:0]  op11_mux_sel_Ihl;
+  wire  [1:0]  op00_mux_sel_Ihl;
+  wire  [2:0]  op01_mux_sel_Ihl;
+  wire  [1:0]  op10_mux_sel_Ihl;
+  wire  [2:0]  op11_mux_sel_Ihl;
 
   always @ (posedge clk) begin
     if( reset ) begin
@@ -938,72 +1103,7 @@ module riscv_CoreCtrl
       squash_ir0_Dhl  <= 1'b0;
     end
     else if( !stall_Ihl ) begin
-      ir0_Ihl               <= ir0_Dhl;
-      ir0_squashed_Ihl      <= !rob_req_val_1_Dhl;
-      rf0_wen_Ihl           <= rf0_wen_Dhl;
-      rf0_waddr_Ihl         <= rf0_waddr_Dhl;
-      alu0_fn_Ihl           <= alu0_fn_Dhl;
-      br0_sel_Ihl           <= br0_sel_Dhl;
-      j0_en_Ihl             <= j0_en_Dhl;
-      pc0_mux_sel_Ihl       <= pc0_mux_sel_Dhl;
-      muldivreq0_val_Ihl    <= muldivreq0_val_Dhl;
-      muldivreq0_msg_fn_Ihl <= muldivreq0_msg_fn_Dhl;
-      muldiv0_mux_sel_Ihl   <= muldiv0_mux_sel_Dhl;
-      execute0_mux_sel_Ihl  <= execute0_mux_sel_Dhl;
-      dmemreq0_msg_rw_Ihl   <= dmemreq0_msg_rw_Dhl;
-      dmemreq0_msg_len_Ihl  <= dmemreq0_msg_len_Dhl;
-      dmemreq0_val_Ihl      <= dmemreq0_val_Dhl;
-      dmemresp0_mux_sel_Ihl <= dmemresp0_mux_sel_Dhl;
-      memex0_mux_sel_Ihl    <= memex0_mux_sel_Dhl;
-      csr0_wen_Ihl          <= csr0_wen_Dhl;
-      csr0_addr_Ihl         <= csr0_addr_Dhl;
-
-      ir1_Ihl               <= ir1_Dhl;
-      ir1_squashed_Ihl      <= !rob_req_val_2_Dhl;
-      rf1_wen_Ihl           <= rf1_wen_Dhl;
-      rf1_waddr_Ihl         <= rf1_waddr_Dhl;
-      alu1_fn_Ihl           <= alu1_fn_Dhl;
-      br1_sel_Ihl           <= br1_sel_Dhl;
-      j1_en_Ihl             <= j1_en_Dhl;
-      pc1_mux_sel_Ihl       <= pc1_mux_sel_Dhl;
-      muldivreq1_val_Ihl    <= muldivreq1_val_Dhl;
-      muldivreq1_msg_fn_Ihl <= muldivreq1_msg_fn_Dhl;
-      muldiv1_mux_sel_Ihl   <= muldiv1_mux_sel_Dhl;
-      execute1_mux_sel_Ihl  <= execute1_mux_sel_Dhl;
-      dmemreq1_msg_rw_Ihl   <= dmemreq1_msg_rw_Dhl;
-      dmemreq1_msg_len_Ihl  <= dmemreq1_msg_len_Dhl;
-      dmemreq1_val_Ihl      <= dmemreq1_val_Dhl;
-      dmemresp1_mux_sel_Ihl <= dmemresp1_mux_sel_Dhl;
-      memex1_mux_sel_Ihl    <= memex1_mux_sel_Dhl;
-      csr1_wen_Ihl          <= csr1_wen_Dhl;
-      csr1_addr_Ihl         <= csr1_addr_Dhl;
-
-      rs00_addr_Ihl         <= rs00_addr_Dhl;
-      rs01_addr_Ihl         <= rs01_addr_Dhl;
-      rs10_addr_Ihl         <= rs10_addr_Dhl;
-      rs11_addr_Ihl         <= rs11_addr_Dhl;
-      rs00_en_Ihl           <= rs00_en_Dhl;
-      rs01_en_Ihl           <= rs01_en_Dhl;
-      rs10_en_Ihl           <= rs10_en_Dhl;
-      rs11_en_Ihl           <= rs11_en_Dhl;
-      rob_fill_slot_0_Ihl   <= rob_fill_slot_0_Dhl;
-      rob_fill_slot_1_Ihl   <= rob_fill_slot_1_Dhl;
-
-      rs00_renamed_Ihl      <= rs00_renamed_Dhl;
-      rs01_renamed_Ihl      <= rs01_renamed_Dhl;
-      rs10_renamed_Ihl      <= rs10_renamed_Dhl;
-      rs11_renamed_Ihl      <= rs11_renamed_Dhl;
-      rs00_rt_slot_Ihl      <= rs00_rt_slot_Dhl;
-      rs01_rt_slot_Ihl      <= rs01_rt_slot_Dhl;
-      rs10_rt_slot_Ihl      <= rs10_rt_slot_Dhl;
-      rs11_rt_slot_Ihl      <= rs11_rt_slot_Dhl;
-
-      op00_mux_sel_Ihl      <= op00_mux_sel_Dhl;
-      op01_mux_sel_Ihl      <= op01_mux_sel_Dhl;
-      op10_mux_sel_Ihl      <= op10_mux_sel_Dhl;
-      op11_mux_sel_Ihl      <= op11_mux_sel_Dhl;
-
-      bubble_Ihl <= bubble_next_Dhl;
+      bubble_Ihl <= 1'b0;//bubble_next_Dhl;
 
       if( double_br_Dhl ) begin
         squash_ir0_Dhl  <= 1'b1;
@@ -1415,7 +1515,7 @@ module riscv_CoreCtrl
   //----------------------------------------------------------------------
   
   // Squash instruction in D if a valid branch in X is taken
-  wire squash_Ihl = ( inst_val_X0hl && brj_taken_X0hl );
+  wire squash_Ihl = ( inst_val_X0hl && brj_taken_X0hl ) || !dequeue_val0 || !dequeue_val1;
 
   // Aggregate Stall Signal
   wire stall_0_Ihl = ( stall_0_sb_Ihl && !ir0_squash_total_Ihl );

@@ -124,6 +124,9 @@ module riscv_Core
   wire [ 4:0] rob_commit_slot_2_Chl;
   wire [ 4:0] rob_commit_waddr_2_Chl;
 
+  // Issue Queue
+  wire [ 4:0] iq_slot_A_Dhl;
+  wire [ 4:0] iq_slot_A_Ihl;
   //----------------------------------------------------------------------
   // Pack Memory Request Messages
   //----------------------------------------------------------------------
@@ -278,6 +281,8 @@ module riscv_Core
     .rob_commit_slot_2_Chl  (rob_commit_slot_2_Chl),
     .rob_commit_waddr_2_Chl (rob_commit_waddr_2_Chl),
 
+    .iq_slot_A_Dhl          (iq_slot_A_Dhl),
+    .iq_slot_A_Ihl          (iq_slot_A_Ihl),
     // CSR Status
 
     .csr_status             (csr_status)
@@ -365,7 +370,10 @@ module riscv_Core
     .rob_commit_waddr_1_Chl (rob_commit_waddr_1_Chl),
     .rob_commit_wen_2_Chl   (rob_commit_wen_2_Chl),
     .rob_commit_slot_2_Chl  (rob_commit_slot_2_Chl),
-    .rob_commit_waddr_2_Chl (rob_commit_waddr_2_Chl)
+    .rob_commit_waddr_2_Chl (rob_commit_waddr_2_Chl),
+    
+    .iq_slot_A_Dhl          (iq_slot_A_Dhl),
+    .iq_slot_A_Ihl          (iq_slot_A_Ihl)
   );
 
 endmodule

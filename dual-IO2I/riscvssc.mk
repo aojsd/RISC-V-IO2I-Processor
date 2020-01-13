@@ -11,6 +11,7 @@ riscvssc_srcs = \
   riscvssc-CoreDpathRegfile.v \
   riscvssc-CoreDpathAlu.v \
   riscvssc-CoreDpathPipeMulDiv.v \
+  riscvssc-CoreIssueQueue.v \
   riscvssc-CoreCtrl.v \
   riscvssc-Core.v \
   riscvssc-InstMsg.v \
