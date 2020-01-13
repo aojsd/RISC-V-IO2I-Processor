@@ -14,7 +14,7 @@ module riscv_CoreIssueQueue
   input         brj_resolved_X0hl,
   input         squash_first_I_inst_Ihl,
   input  [31:0] sb_src_ready, // signal from sb detailing which inst are ready to be issued 
-
+  output        iq_contains_jmp,
   // enqueue values
   input         iq_enqueue_spec0, // determines if newly enqueued val is spec
   input         iq_enqueue_spec1, 
@@ -195,9 +195,21 @@ module riscv_CoreIssueQueue
   wire         iq_empty           = (iq_head == iq_tail) && !(iq_valid[iq_tail]);
   wire         iq_has_two_empty   = (iq_head != iq_tail+1);
 
-  wire         iq_enqueue_rdy     = ( iq_head != iq_tail && iq_has_two_empty) ||
-                                    ( iq_empty );
-
+  wire         iq_enqueue_rdy     = (( iq_head != iq_tail && iq_has_two_empty) ||
+                                    ( iq_empty ) );
+  reg         iq_contains_jmp;
+  integer n;
+  always @(posedge reset) begin
+    iq_contains_jmp <= 1'b0;
+  end
+  always @(posedge clk) begin
+    if ((iq_enqueue_val0 && iq_j0_en_Dhl) || (iq_enqueue_val1 && iq_j1_en_Dhl)) begin
+      iq_contains_jmp <= 1'b1;
+    end
+    if ( (iq_dequeue_val0 && iq_j0_en_Ihl && iq_dequeue_rdy0) || (iq_dequeue_val1 && iq_j1_en_Ihl && iq_dequeue_rdy1)) begin
+      iq_contains_jmp <= 1'b0;
+    end
+  end
 
 
   
@@ -394,7 +406,6 @@ module riscv_CoreIssueQueue
   wire         iq_dequeue_val0 = iq_valid[j] && j!=k; // determines if input is valid
   wire [4:0]   iq_enqueue_slot0 = iq_tail;
   wire [4:0]   iq_dequeue_slot0 = j;
-
   wire [31:0]  iq_ir0_Ihl = iq_ir[j];
   wire         iq_ir0_squashed_Ihl = iq_ir_squashed[j];
   wire         iq_rf0_wen_Ihl = iq_rf_wen[j];

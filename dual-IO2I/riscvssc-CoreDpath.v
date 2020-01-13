@@ -173,29 +173,34 @@ module riscv_CoreDpath
       pc_Dhl                          <= pc_Fhl;
       pc_plus4_Dhl                    <= pc_plus4_Fhl;
       pc_plus8_Dhl                    <= pc_plus8_Fhl;
-      
-      iq_pc_Ihl[iq_slot_A_Dhl]        <= pc_Dhl;
-      iq_pc_plus4_Ihl[iq_slot_A_Dhl]  <= pc_plus4_Dhl;
-      iq_pc_plus8_Ihl[iq_slot_A_Dhl]  <= pc_plus8_Dhl;
     end
   end
 
   //----------------------------------------------------------------------
   // I <- D
   //----------------------------------------------------------------------
-  reg [31:0] iq_pc_Ihl [4:0];
-  reg [31:0] iq_pc_plus4_Ihl [4:0];
-  reg [31:0] iq_pc_plus8_Ihl [4:0];
+  reg [31:0] iq_pc_Ihl [31:0];
+  reg [31:0] iq_pc_plus4_Ihl [31:0];
+  reg [31:0] iq_pc_plus8_Ihl [31:0];
 
   wire [31:0] pc_Ihl = iq_pc_Ihl[iq_slot_A_Ihl];
   wire [31:0] pc_plus4_Ihl = iq_pc_plus4_Ihl[iq_slot_A_Ihl];
   wire [31:0] pc_plus8_Ihl = iq_pc_plus8_Ihl[iq_slot_A_Ihl];
 
-  // always @ (posedge clk) begin
-  //   if( !stall_Ihl ) begin
-      
-  //   end
-  // end
+  integer iq_i;
+  always @(posedge reset) begin
+    for (iq_i = 0 ; iq_i < 32 ; iq_i = iq_i + 1) begin
+      iq_pc_Ihl[iq_i] <= reset_vector;
+      iq_pc_plus4_Ihl[iq_i] <= reset_vector;
+      iq_pc_plus8_Ihl[iq_i] <= reset_vector;
+    end
+  end
+
+  always @ (posedge clk) begin
+      iq_pc_Ihl[iq_slot_A_Dhl]        <= pc_Dhl;
+      iq_pc_plus4_Ihl[iq_slot_A_Dhl]  <= pc_plus4_Dhl;
+      iq_pc_plus8_Ihl[iq_slot_A_Dhl]  <= pc_plus8_Dhl;
+  end
 
   //--------------------------------------------------------------------
   // Issue Stage (Register Read)

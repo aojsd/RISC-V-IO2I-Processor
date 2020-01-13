@@ -844,7 +844,8 @@ module riscv_CoreCtrl
 
   wire squash_Dhl
     = ( inst_val_Ihl && brj_taken_Ihl )
-   || ( inst_val_X0hl && brj_taken_X0hl );
+   || ( inst_val_X0hl && brj_taken_X0hl )
+   || iq_contains_jmp;
 
   // Stall in D if the ROB is full, if a second branch is seen before the first
   // resolved, or if I is stalled
@@ -875,6 +876,7 @@ module riscv_CoreCtrl
   wire iq_enqueue_rdy;
   wire dequeue_val0;
   wire dequeue_val1;
+  wire iq_contains_jmp;
   riscv_CoreIssueQueue issue_queue(
     .clk (clk),
     .reset (reset),
@@ -882,7 +884,8 @@ module riscv_CoreCtrl
     .brj_taken_X0hl (brj_taken_X0hl),
     .brj_resolved_X0hl (brj_resolved_X0hl),
     .squash_first_I_inst_Ihl (squash_first_I_inst_Ihl),
-    
+    .iq_contains_jmp    (iq_contains_jmp),
+
     .iq_enqueue_val0    (iq_enqueue_val0),
     .iq_enqueue_val1    (iq_enqueue_val1),
     .iq_enqueue_rdy     (iq_enqueue_rdy),
