@@ -449,7 +449,8 @@ module riscv_CoreIssueQueue
   wire [4:0]   iq_enqueue_slot0 = iq_tail;
   wire [4:0]   iq_dequeue_slot0 = j;
   wire [31:0]  iq_ir0_Ihl = iq_ir[j];
-  wire         iq_ir0_squashed_Ihl = (j === 5'bxxxxx)?1'b1:iq_ir_squashed[j];
+  wire         iq_ir0_squashed_Ihl = (j === 5'bxxxxx)?1'b1:
+                                     (iq_dequeue_val0)?iq_ir_squashed[j]:1'b1;
   wire         iq_rf0_wen_Ihl = iq_rf_wen[j];
   wire  [4:0]  iq_rf0_waddr_Ihl = iq_rf_waddr[j];
   wire  [3:0]  iq_alu0_fn_Ihl = iq_alu_fn[j];
@@ -476,7 +477,8 @@ module riscv_CoreIssueQueue
   wire [4:0]   iq_dequeue_slot1 = k;
 
   wire [31:0]  iq_ir1_Ihl = iq_ir[k];
-  wire         iq_ir1_squashed_Ihl = (k === 5'bxxxxx)?1'b1:iq_ir_squashed[k];
+  wire         iq_ir1_squashed_Ihl = (k === 5'bxxxxx)?1'b1:
+                                     (iq_dequeue_val1)?iq_ir_squashed[k]:1'b1;
   wire         iq_rf1_wen_Ihl = iq_rf_wen[k];
   wire  [4:0]  iq_rf1_waddr_Ihl = iq_rf_waddr[k];
   wire  [3:0]  iq_alu1_fn_Ihl = iq_alu_fn[k];

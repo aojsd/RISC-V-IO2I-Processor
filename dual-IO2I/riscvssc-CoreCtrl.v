@@ -1134,8 +1134,8 @@ module riscv_CoreCtrl
   // Issue Stage: Jump and Branch Controls
   //----------------------------------------------------------------------
 
-  wire       brj0_taken_Ihl = ( inst_val_Ihl && dequeue_val0 && j0_en_Ihl );
-  wire       brj1_taken_Ihl = ( inst_val_Ihl && dequeue_val1 && j1_en_Ihl );
+  wire       brj0_taken_Ihl = ( inst_val_Ihl && j0_en_Ihl );
+  wire       brj1_taken_Ihl = ( inst_val_Ihl && j1_en_Ihl );
 
   wire       brj_taken_Ihl  = ( !steering_mux_sel_Ihl ) ? brj0_taken_Ihl && ir0_issued_Ihl
                             : (  steering_mux_sel_Ihl ) ? brj1_taken_Ihl && ir1_issued_Ihl
@@ -1200,12 +1200,12 @@ module riscv_CoreCtrl
 
   wire ir0_squash_total_Ihl = squash_first_I_inst_Ihl || ir0_squashed_Ihl;
 
-  wire stall_1_RAW0_Ihl        = ( inst_val_Ihl && dequeue_val1 && rf0_wen_Ihl )
+  wire stall_1_RAW0_Ihl        = ( inst_val_Ihl && rf0_wen_Ihl )
                              && ( ( rf0_waddr_Ihl == rs10_addr_Ihl ) && rs10_en_Ihl )
                              && ( !ir0_squash_total_Ihl )
                              && ( !ir1_squashed_Ihl );
 
-  wire stall_1_RAW1_Ihl        = ( inst_val_Ihl && dequeue_val1 && rf0_wen_Ihl )
+  wire stall_1_RAW1_Ihl        = ( inst_val_Ihl && rf0_wen_Ihl )
                              && ( ( rf0_waddr_Ihl == rs11_addr_Ihl ) && rs11_en_Ihl )
                              && ( !ir0_squash_total_Ihl )
                              && ( !ir1_squashed_Ihl );
@@ -1214,7 +1214,7 @@ module riscv_CoreCtrl
   // ALU instructions. Alternatively, both instructions are loads, stores,
   // muldivs, jumps, branches, or CSRWs.
 
-  wire reqA_0_Ihl             = ( inst_val_Ihl && dequeue_val0 && !squash_first_I_inst_Ihl )
+  wire reqA_0_Ihl             = ( inst_val_Ihl && !squash_first_I_inst_Ihl )
                              && ( muldivreq0_val_Ihl
                                || dmemreq0_val_Ihl
                                || brj0_taken_Ihl
@@ -1222,7 +1222,7 @@ module riscv_CoreCtrl
                                || csr0_wen_Ihl
                                 );
 
-  wire reqA_1_Ihl             = ( inst_val_Ihl && dequeue_val1)
+  wire reqA_1_Ihl             = ( inst_val_Ihl )
                              && ( muldivreq1_val_Ihl
                                || dmemreq1_val_Ihl
                                || brj1_taken_Ihl
@@ -1464,10 +1464,10 @@ module riscv_CoreCtrl
 
   wire stall_0_sb_Ihl = ( (!sb_src_ready[rs00_rt_slot_Ihl] && rs00_en_Ihl && rs00_renamed_Ihl)
                        || (!sb_src_ready[rs01_rt_slot_Ihl] && rs01_en_Ihl && rs01_renamed_Ihl) )
-                       && inst_val_Ihl && dequeue_val0;
+                       && inst_val_Ihl;
   wire stall_1_sb_Ihl = ( (!sb_src_ready[rs10_rt_slot_Ihl] && rs10_en_Ihl && rs10_renamed_Ihl)
                        || (!sb_src_ready[rs11_rt_slot_Ihl] && rs11_en_Ihl && rs11_renamed_Ihl) )
-                       && inst_val_Ihl && dequeue_val1;
+                       && inst_val_Ihl;
 
   wire [31:0] sb_src_ready;
 
