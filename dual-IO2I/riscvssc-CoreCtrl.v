@@ -175,7 +175,8 @@ module riscv_CoreCtrl
 
   wire squash_Fhl
     = ( inst_val_Ihl && brj_taken_Ihl )
-   || ( inst_val_X0hl && brj_taken_X0hl );
+   || ( inst_val_X0hl && brj_taken_X0hl )
+   || (iq_contains_jmp);
 
   // Stall in F if D is stalled
 
@@ -855,7 +856,9 @@ module riscv_CoreCtrl
 
   wire stall_agg_Dhl = !iq_enqueue_rdy || ( (stall_rob_Dhl || stall_br_Dhl) && inst_val_Dhl);
 
-  wire stall_Dhl = stall_agg_Dhl || double_br_Dhl;
+  // if we are doing a store, then we stall if it is speculative (can't do this!)
+  wire stall_spec_st = spec_Dhl && (cs0[`RISCV_INST_MSG_MEM_REQ] ==  st || cs1[`RISCV_INST_MSG_MEM_REQ] == st);
+  wire stall_Dhl = stall_agg_Dhl || double_br_Dhl || stall_spec_st;
 
   // Next bubble bit
   // Send a bubble bit if no ROB entries are allocated
@@ -867,8 +870,8 @@ module riscv_CoreCtrl
   //----------------------------------------------------------------------
   // IQ <- D
   //----------------------------------------------------------------------
-  wire iq_enqueue_val0 = inst_val_Dhl && !squash_ir0_Dhl && !stall_Dhl;
-  wire iq_enqueue_val1 = inst_val_Dhl && !squash_Dhl && !stall_Dhl;
+  wire iq_enqueue_val0 = rob_req_val_1_Dhl;//inst_val_Dhl && !squash_ir0_Dhl && !stall_Dhl;
+  wire iq_enqueue_val1 = rob_req_val_2_Dhl;//inst_val_Dhl && !squash_Dhl && !stall_Dhl;
   wire iq_enqueue_spec0= rob_req_spec_1_Dhl;
   wire iq_enqueue_spec1= rob_req_spec_2_Dhl;
   wire iq_dequeue_rdy0 = !stall_Ihl;
@@ -1131,8 +1134,8 @@ module riscv_CoreCtrl
   // Issue Stage: Jump and Branch Controls
   //----------------------------------------------------------------------
 
-  wire       brj0_taken_Ihl = ( inst_val_Ihl && j0_en_Ihl );
-  wire       brj1_taken_Ihl = ( inst_val_Ihl && j1_en_Ihl );
+  wire       brj0_taken_Ihl = ( inst_val_Ihl && dequeue_val0 && j0_en_Ihl );
+  wire       brj1_taken_Ihl = ( inst_val_Ihl && dequeue_val1 && j1_en_Ihl );
 
   wire       brj_taken_Ihl  = ( !steering_mux_sel_Ihl ) ? brj0_taken_Ihl && ir0_issued_Ihl
                             : (  steering_mux_sel_Ihl ) ? brj1_taken_Ihl && ir1_issued_Ihl
@@ -1197,12 +1200,12 @@ module riscv_CoreCtrl
 
   wire ir0_squash_total_Ihl = squash_first_I_inst_Ihl || ir0_squashed_Ihl;
 
-  wire stall_1_RAW0_Ihl        = ( inst_val_Ihl && rf0_wen_Ihl )
+  wire stall_1_RAW0_Ihl        = ( inst_val_Ihl && dequeue_val1 && rf0_wen_Ihl )
                              && ( ( rf0_waddr_Ihl == rs10_addr_Ihl ) && rs10_en_Ihl )
                              && ( !ir0_squash_total_Ihl )
                              && ( !ir1_squashed_Ihl );
 
-  wire stall_1_RAW1_Ihl        = ( inst_val_Ihl && rf0_wen_Ihl )
+  wire stall_1_RAW1_Ihl        = ( inst_val_Ihl && dequeue_val1 && rf0_wen_Ihl )
                              && ( ( rf0_waddr_Ihl == rs11_addr_Ihl ) && rs11_en_Ihl )
                              && ( !ir0_squash_total_Ihl )
                              && ( !ir1_squashed_Ihl );
@@ -1211,7 +1214,7 @@ module riscv_CoreCtrl
   // ALU instructions. Alternatively, both instructions are loads, stores,
   // muldivs, jumps, branches, or CSRWs.
 
-  wire reqA_0_Ihl             = ( inst_val_Ihl && !squash_first_I_inst_Ihl )
+  wire reqA_0_Ihl             = ( inst_val_Ihl && dequeue_val0 && !squash_first_I_inst_Ihl )
                              && ( muldivreq0_val_Ihl
                                || dmemreq0_val_Ihl
                                || brj0_taken_Ihl
@@ -1219,7 +1222,7 @@ module riscv_CoreCtrl
                                || csr0_wen_Ihl
                                 );
 
-  wire reqA_1_Ihl             = ( inst_val_Ihl )
+  wire reqA_1_Ihl             = ( inst_val_Ihl && dequeue_val1)
                              && ( muldivreq1_val_Ihl
                                || dmemreq1_val_Ihl
                                || brj1_taken_Ihl
@@ -1461,10 +1464,10 @@ module riscv_CoreCtrl
 
   wire stall_0_sb_Ihl = ( (!sb_src_ready[rs00_rt_slot_Ihl] && rs00_en_Ihl && rs00_renamed_Ihl)
                        || (!sb_src_ready[rs01_rt_slot_Ihl] && rs01_en_Ihl && rs01_renamed_Ihl) )
-                       && inst_val_Ihl;
+                       && inst_val_Ihl && dequeue_val0;
   wire stall_1_sb_Ihl = ( (!sb_src_ready[rs10_rt_slot_Ihl] && rs10_en_Ihl && rs10_renamed_Ihl)
                        || (!sb_src_ready[rs11_rt_slot_Ihl] && rs11_en_Ihl && rs11_renamed_Ihl) )
-                       && inst_val_Ihl;
+                       && inst_val_Ihl && dequeue_val1;
 
   wire [31:0] sb_src_ready;
 
@@ -1518,7 +1521,7 @@ module riscv_CoreCtrl
   //----------------------------------------------------------------------
   
   // Squash instruction in D if a valid branch in X is taken
-  wire squash_Ihl = ( inst_val_X0hl && brj_taken_X0hl ) || !dequeue_val0 || !dequeue_val1;
+  wire squash_Ihl = ( inst_val_X0hl && brj_taken_X0hl ) || (!dequeue_val0 && !dequeue_val1);
 
   // Aggregate Stall Signal
   wire stall_0_Ihl = ( stall_0_sb_Ihl && !ir0_squash_total_Ihl );

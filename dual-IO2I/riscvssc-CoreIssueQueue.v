@@ -198,6 +198,7 @@ module riscv_CoreIssueQueue
   wire         iq_enqueue_rdy     = (( iq_head != iq_tail && iq_has_two_empty) ||
                                     ( iq_empty ) );
   reg         iq_contains_jmp;
+  wire        iq_contains_spec = (iq_spec > 0)?1'b1:1'b0;
   integer n;
   always @(posedge reset) begin
     iq_contains_jmp <= 1'b0;
@@ -211,8 +212,6 @@ module riscv_CoreIssueQueue
     end
   end
 
-
-  
   //state storage
   reg [31:0] iq_valid;
   reg [31:0] iq_spec;
@@ -255,12 +254,18 @@ module riscv_CoreIssueQueue
   wire[4:0] iq_head_next = iq_head + 1;
   wire[4:0] iq_tail_next = iq_tail + 1;
 
-  integer i;
+  reg [5:0]iq_dmemreq_bitmask;
+  integer h;
+  always @(*) begin
+    for (h=0 ; h< 32 ; h = h+1) begin
+      iq_dmemreq_bitmask[h] = iq_valid[h] && iq_dmemreq_val[h];
+    end
+  end
 
   //----------------------------------------------------------------------  
   // Reset Case
   //----------------------------------------------------------------------
-
+  integer i;
   always @(posedge clk) begin
     if (reset) begin
       iq_head <= 5'b00000;
@@ -351,7 +356,7 @@ module riscv_CoreIssueQueue
       iq_op1_mux_sel[iq_tail]        <= iq_op01_mux_sel_Dhl;
     end
     // ir1
-    if (iq_enqueue_val1) begin
+    if (iq_enqueue_val0 && iq_enqueue_val1) begin
       iq_valid[iq_tail_next]             <= 1'b1;
       iq_spec[iq_tail_next]              <= iq_enqueue_spec1;
 
@@ -389,7 +394,44 @@ module riscv_CoreIssueQueue
       iq_op0_mux_sel[iq_tail_next]       <= iq_op10_mux_sel_Dhl;
       iq_op1_mux_sel[iq_tail_next]       <= iq_op11_mux_sel_Dhl;
     end
-    
+    else if (iq_enqueue_val1 && !iq_enqueue_val0) begin
+      iq_valid[iq_tail]             <= 1'b1;
+      iq_spec[iq_tail]              <= iq_enqueue_spec1;
+
+      iq_ir[iq_tail]                <= iq_ir1_Dhl;
+      iq_ir_squashed[iq_tail]       <= iq_ir1_squashed_Dhl;
+      iq_rf_wen[iq_tail]            <= iq_rf1_wen_Dhl;
+      iq_rf_waddr[iq_tail]          <= iq_rf1_waddr_Dhl;
+      iq_alu_fn[iq_tail]            <= iq_alu1_fn_Dhl;
+      iq_br_sel[iq_tail]            <= iq_br1_sel_Dhl;
+      iq_j_en[iq_tail]              <= iq_j1_en_Dhl;
+      iq_pc_mux_sel[iq_tail]        <= iq_pc1_mux_sel_Dhl;
+      iq_muldivreq_val[iq_tail]     <= iq_muldivreq1_val_Dhl;
+      iq_muldivreq_msg_fn[iq_tail]  <= iq_muldivreq1_msg_fn_Dhl;
+      iq_muldiv_mux_sel[iq_tail]    <= iq_muldiv1_mux_sel_Dhl;
+      iq_execute_mux_sel[iq_tail]   <= iq_execute1_mux_sel_Dhl;
+      iq_dmemreq_msg_rw[iq_tail]    <= iq_dmemreq1_msg_rw_Dhl;
+      iq_dmemreq_msg_len[iq_tail]   <= iq_dmemreq1_msg_len_Dhl;
+      iq_dmemreq_val[iq_tail]       <= iq_dmemreq1_val_Dhl;
+      iq_dmemresp_mux_sel[iq_tail]  <= iq_dmemresp1_mux_sel_Dhl;
+      iq_memex_mux_sel[iq_tail]     <= iq_memex1_mux_sel_Dhl;
+      iq_csr_wen[iq_tail]           <= iq_csr1_wen_Dhl;
+      iq_csr_addr[iq_tail]          <= iq_csr1_addr_Dhl;
+      
+      iq_rs0_addr[iq_tail]          <= iq_rs10_addr_Dhl;
+      iq_rs1_addr[iq_tail]          <= iq_rs11_addr_Dhl;
+      iq_rs0_en[iq_tail]            <= iq_rs10_en_Dhl;
+      iq_rs1_en[iq_tail]            <= iq_rs11_en_Dhl;
+      iq_rob_fill_slot[iq_tail]     <= iq_rob_fill_slot_1_Dhl;
+      
+      iq_rs0_renamed[iq_tail]       <= iq_rs10_renamed_Dhl;
+      iq_rs1_renamed[iq_tail]       <= iq_rs11_renamed_Dhl;
+      iq_rs0_rt_slot[iq_tail]       <= iq_rs10_rt_slot_Dhl;
+      iq_rs1_rt_slot[iq_tail]       <= iq_rs11_rt_slot_Dhl;
+
+      iq_op0_mux_sel[iq_tail]       <= iq_op10_mux_sel_Dhl;
+      iq_op1_mux_sel[iq_tail]       <= iq_op11_mux_sel_Dhl;
+    end
     // increment tail
     if(iq_enqueue_val0 && iq_enqueue_val1) begin
       iq_tail <= iq_tail+2;
@@ -403,11 +445,11 @@ module riscv_CoreIssueQueue
   // IQ DEQUEUE
   //----------------------------------------------------------------------  
 
-  wire         iq_dequeue_val0 = iq_valid[j] && j!=k; // determines if input is valid
+  wire         iq_dequeue_val0 = (j === 5'bxxxxx)?1'b0:iq_valid[j]; // determines if input is valid
   wire [4:0]   iq_enqueue_slot0 = iq_tail;
   wire [4:0]   iq_dequeue_slot0 = j;
   wire [31:0]  iq_ir0_Ihl = iq_ir[j];
-  wire         iq_ir0_squashed_Ihl = iq_ir_squashed[j];
+  wire         iq_ir0_squashed_Ihl = (j === 5'bxxxxx)?1'b1:iq_ir_squashed[j];
   wire         iq_rf0_wen_Ihl = iq_rf_wen[j];
   wire  [4:0]  iq_rf0_waddr_Ihl = iq_rf_waddr[j];
   wire  [3:0]  iq_alu0_fn_Ihl = iq_alu_fn[j];
@@ -429,12 +471,12 @@ module riscv_CoreIssueQueue
   wire  [4:0]  iq_rs00_addr_Ihl = iq_rs0_addr[j];
   wire  [4:0]  iq_rs01_addr_Ihl = iq_rs1_addr[j];
 
-  wire         iq_dequeue_val1 = iq_valid[k] && j!=k; // determines if input is valid
+  wire         iq_dequeue_val1 = (k === 5'bxxxxx)?1'b0:iq_valid[k]; // determines if input is valid
   wire [4:0]   iq_enqueue_slot1 = iq_tail_next;
   wire [4:0]   iq_dequeue_slot1 = k;
 
   wire [31:0]  iq_ir1_Ihl = iq_ir[k];
-  wire         iq_ir1_squashed_Ihl = iq_ir_squashed[k];
+  wire         iq_ir1_squashed_Ihl = (k === 5'bxxxxx)?1'b1:iq_ir_squashed[k];
   wire         iq_rf1_wen_Ihl = iq_rf_wen[k];
   wire  [4:0]  iq_rf1_waddr_Ihl = iq_rf_waddr[k];
   wire  [3:0]  iq_alu1_fn_Ihl = iq_alu_fn[k];
@@ -491,78 +533,83 @@ module riscv_CoreIssueQueue
     if (!iq_valid[iq_head] && !iq_valid[iq_head_next] && iq_head != iq_tail && iq_head_next != iq_tail) begin
       iq_head <= iq_head + 2;
     end
+    else if (!iq_valid[iq_head]  && iq_head != iq_tail) begin
+      iq_head <= iq_head + 1;
+    end
   end
 
   wire sb_src_read_head = sb_src_ready[iq_rob_fill_slot[iq_head]];
   // verilog sucks 
-  wire [4:0] j =  (0%2 == 0 && iq_valid[(iq_head+0)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+0)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+0)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+1)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+1)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+1)%32])) ))?
-                  (iq_head+0)%32:
-                  (1%2 == 0 && iq_valid[(iq_head+1)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+1)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+1)%32])) ) && iq_valid[(iq_head+2)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+2)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+2)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+1)%32:
-                  (2%2 == 0 && iq_valid[(iq_head+2)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+2)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+2)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+3)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+3)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+3)%32])) ))?
-                  (iq_head+2)%32:
-                  (3%2 == 0 && iq_valid[(iq_head+3)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+3)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+3)%32])) ) && iq_valid[(iq_head+4)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+4)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+4)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+3)%32:
-                  (4%2 == 0 && iq_valid[(iq_head+4)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+4)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+4)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+5)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+5)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+5)%32])) ))?
-                  (iq_head+4)%32:
-                  (5%2 == 0 && iq_valid[(iq_head+5)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+5)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+5)%32])) ) && iq_valid[(iq_head+6)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+6)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+6)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+5)%32:
-                  (6%2 == 0 && iq_valid[(iq_head+6)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+6)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+6)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+7)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+7)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+7)%32])) ))?
-                  (iq_head+6)%32:
-                  (7%2 == 0 && iq_valid[(iq_head+7)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+7)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+7)%32])) ) && iq_valid[(iq_head+8)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+8)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+8)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+7)%32:
-                  (8%2 == 0 && iq_valid[(iq_head+8)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+8)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+8)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+9)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+9)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+9)%32])) ))?
-                  (iq_head+8)%32:
-                  (9%2 == 0 && iq_valid[(iq_head+9)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+9)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+9)%32])) ) && iq_valid[(iq_head+10)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+10)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+10)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+9)%32:
-                  (10%2 == 0 && iq_valid[(iq_head+10)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+10)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+10)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+11)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+11)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+11)%32])) ))?
-                  (iq_head+10)%32:
-                  (11%2 == 0 && iq_valid[(iq_head+11)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+11)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+11)%32])) ) && iq_valid[(iq_head+12)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+12)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+12)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+11)%32:
-                  (12%2 == 0 && iq_valid[(iq_head+12)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+12)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+12)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+13)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+13)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+13)%32])) ))?
-                  (iq_head+12)%32:
-                  (13%2 == 0 && iq_valid[(iq_head+13)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+13)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+13)%32])) ) && iq_valid[(iq_head+14)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+14)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+14)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+13)%32:
-                  (14%2 == 0 && iq_valid[(iq_head+14)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+14)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+14)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+15)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+15)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+15)%32])) ))?
-                  (iq_head+14)%32:
-                  (15%2 == 0 && iq_valid[(iq_head+15)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+15)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+15)%32])) ) && iq_valid[(iq_head+16)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+16)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+16)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+15)%32:
-                  (16%2 == 0 && iq_valid[(iq_head+16)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+16)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+16)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+17)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+17)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+17)%32])) ))?
-                  (iq_head+16)%32:
-                  (17%2 == 0 && iq_valid[(iq_head+17)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+17)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+17)%32])) ) && iq_valid[(iq_head+18)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+18)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+18)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+17)%32:
-                  (18%2 == 0 && iq_valid[(iq_head+18)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+18)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+18)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+19)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+19)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+19)%32])) ))?
-                  (iq_head+18)%32:
-                  (19%2 == 0 && iq_valid[(iq_head+19)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+19)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+19)%32])) ) && iq_valid[(iq_head+20)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+20)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+20)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+19)%32:
-                  (20%2 == 0 && iq_valid[(iq_head+20)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+20)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+20)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+21)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+21)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+21)%32])) ))?
-                  (iq_head+20)%32:
-                  (21%2 == 0 && iq_valid[(iq_head+21)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+21)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+21)%32])) ) && iq_valid[(iq_head+22)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+22)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+22)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+21)%32:
-                  (22%2 == 0 && iq_valid[(iq_head+22)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+22)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+22)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+23)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+23)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+23)%32])) ))?
-                  (iq_head+22)%32:
-                  (23%2 == 0 && iq_valid[(iq_head+23)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+23)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+23)%32])) ) && iq_valid[(iq_head+24)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+24)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+24)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+23)%32:
-                  (24%2 == 0 && iq_valid[(iq_head+24)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+24)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+24)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+25)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+25)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+25)%32])) ))?
-                  (iq_head+24)%32:
-                  (25%2 == 0 && iq_valid[(iq_head+25)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+25)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+25)%32])) ) && iq_valid[(iq_head+26)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+26)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+26)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+25)%32:
-                  (26%2 == 0 && iq_valid[(iq_head+26)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+26)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+26)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+27)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+27)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+27)%32])) ))?
-                  (iq_head+26)%32:
-                  (27%2 == 0 && iq_valid[(iq_head+27)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+27)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+27)%32])) ) && iq_valid[(iq_head+28)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+28)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+28)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+27)%32:
-                  (28%2 == 0 && iq_valid[(iq_head+28)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+28)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+28)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+29)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+29)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+29)%32])) ))?
-                  (iq_head+28)%32:
-                  (29%2 == 0 && iq_valid[(iq_head+29)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+29)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+29)%32])) ) && iq_valid[(iq_head+30)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+30)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+30)%32])) || squash_first_I_inst_Ihl))?
-                  (iq_head+29)%32:
-                  (30%2 == 0 && iq_valid[(iq_head+30)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+30)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+30)%32])) || squash_first_I_inst_Ihl) && iq_valid[(iq_head+31)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+31)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+31)%32])) ))?
-                  (iq_head+30)%32:
-                  5'b00000;
+  wire [4:0] j =  (iq_valid[(iq_head+0)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+0)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+0)%32])) || (iq_valid[(iq_head+1)%32] && squash_first_I_inst_Ihl)) )?
+(iq_head+0)%32:
+(iq_valid[(iq_head+1)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+1)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+1)%32])) || (iq_valid[(iq_head+2)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+1)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]))))?
+(iq_head+1)%32:
+(iq_valid[(iq_head+2)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+2)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+2)%32])) || (iq_valid[(iq_head+3)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+2)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]))))?
+(iq_head+2)%32:
+(iq_valid[(iq_head+3)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+3)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+3)%32])) || (iq_valid[(iq_head+4)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+3)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]))))?
+(iq_head+3)%32:
+(iq_valid[(iq_head+4)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+4)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+4)%32])) || (iq_valid[(iq_head+5)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+4)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]))))?
+(iq_head+4)%32:
+(iq_valid[(iq_head+5)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+5)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+5)%32])) || (iq_valid[(iq_head+6)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+5)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]))))?
+(iq_head+5)%32:
+(iq_valid[(iq_head+6)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+6)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+6)%32])) || (iq_valid[(iq_head+7)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+6)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]))))?
+(iq_head+6)%32:
+(iq_valid[(iq_head+7)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+7)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+7)%32])) || (iq_valid[(iq_head+8)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+7)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]))))?
+(iq_head+7)%32:
+(iq_valid[(iq_head+8)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+8)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+8)%32])) || (iq_valid[(iq_head+9)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+8)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]))))?
+(iq_head+8)%32:
+(iq_valid[(iq_head+9)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+9)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+9)%32])) || (iq_valid[(iq_head+10)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+9)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]))))?
+(iq_head+9)%32:
+(iq_valid[(iq_head+10)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+10)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+10)%32])) || (iq_valid[(iq_head+11)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+10)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]))))?
+(iq_head+10)%32:
+(iq_valid[(iq_head+11)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+11)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+11)%32])) || (iq_valid[(iq_head+12)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+11)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]))))?
+(iq_head+11)%32:
+(iq_valid[(iq_head+12)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+12)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+12)%32])) || (iq_valid[(iq_head+13)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+12)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]))))?
+(iq_head+12)%32:
+(iq_valid[(iq_head+13)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+13)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+13)%32])) || (iq_valid[(iq_head+14)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+13)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]))))?
+(iq_head+13)%32:
+(iq_valid[(iq_head+14)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+14)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+14)%32])) || (iq_valid[(iq_head+15)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+14)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]))))?
+(iq_head+14)%32:
+(iq_valid[(iq_head+15)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+15)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+15)%32])) || (iq_valid[(iq_head+16)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+15)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]))))?
+(iq_head+15)%32:
+(iq_valid[(iq_head+16)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+16)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+16)%32])) || (iq_valid[(iq_head+17)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+16)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]))))?
+(iq_head+16)%32:
+(iq_valid[(iq_head+17)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+17)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+17)%32])) || (iq_valid[(iq_head+18)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+17)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]))))?
+(iq_head+17)%32:
+(iq_valid[(iq_head+18)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+18)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+18)%32])) || (iq_valid[(iq_head+19)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+18)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]))))?
+(iq_head+18)%32:
+(iq_valid[(iq_head+19)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+19)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+19)%32])) || (iq_valid[(iq_head+20)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+19)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]) || (iq_dmemreq_bitmask[(iq_head+18)%32] && iq_valid[(iq_head+18)%32]))))?
+(iq_head+19)%32:
+(iq_valid[(iq_head+20)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+20)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+20)%32])) || (iq_valid[(iq_head+21)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+20)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]) || (iq_dmemreq_bitmask[(iq_head+18)%32] && iq_valid[(iq_head+18)%32]) || (iq_dmemreq_bitmask[(iq_head+19)%32] && iq_valid[(iq_head+19)%32]))))?
+(iq_head+20)%32:
+(iq_valid[(iq_head+21)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+21)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+21)%32])) || (iq_valid[(iq_head+22)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+21)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]) || (iq_dmemreq_bitmask[(iq_head+18)%32] && iq_valid[(iq_head+18)%32]) || (iq_dmemreq_bitmask[(iq_head+19)%32] && iq_valid[(iq_head+19)%32]) || (iq_dmemreq_bitmask[(iq_head+20)%32] && iq_valid[(iq_head+20)%32]))))?
+(iq_head+21)%32:
+(iq_valid[(iq_head+22)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+22)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+22)%32])) || (iq_valid[(iq_head+23)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+22)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]) || (iq_dmemreq_bitmask[(iq_head+18)%32] && iq_valid[(iq_head+18)%32]) || (iq_dmemreq_bitmask[(iq_head+19)%32] && iq_valid[(iq_head+19)%32]) || (iq_dmemreq_bitmask[(iq_head+20)%32] && iq_valid[(iq_head+20)%32]) || (iq_dmemreq_bitmask[(iq_head+21)%32] && iq_valid[(iq_head+21)%32]))))?
+(iq_head+22)%32:
+(iq_valid[(iq_head+23)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+23)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+23)%32])) || (iq_valid[(iq_head+24)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+23)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]) || (iq_dmemreq_bitmask[(iq_head+18)%32] && iq_valid[(iq_head+18)%32]) || (iq_dmemreq_bitmask[(iq_head+19)%32] && iq_valid[(iq_head+19)%32]) || (iq_dmemreq_bitmask[(iq_head+20)%32] && iq_valid[(iq_head+20)%32]) || (iq_dmemreq_bitmask[(iq_head+21)%32] && iq_valid[(iq_head+21)%32]) || (iq_dmemreq_bitmask[(iq_head+22)%32] && iq_valid[(iq_head+22)%32]))))?
+(iq_head+23)%32:
+(iq_valid[(iq_head+24)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+24)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+24)%32])) || (iq_valid[(iq_head+25)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+24)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]) || (iq_dmemreq_bitmask[(iq_head+18)%32] && iq_valid[(iq_head+18)%32]) || (iq_dmemreq_bitmask[(iq_head+19)%32] && iq_valid[(iq_head+19)%32]) || (iq_dmemreq_bitmask[(iq_head+20)%32] && iq_valid[(iq_head+20)%32]) || (iq_dmemreq_bitmask[(iq_head+21)%32] && iq_valid[(iq_head+21)%32]) || (iq_dmemreq_bitmask[(iq_head+22)%32] && iq_valid[(iq_head+22)%32]) || (iq_dmemreq_bitmask[(iq_head+23)%32] && iq_valid[(iq_head+23)%32]))))?
+(iq_head+24)%32:
+(iq_valid[(iq_head+25)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+25)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+25)%32])) || (iq_valid[(iq_head+26)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+25)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]) || (iq_dmemreq_bitmask[(iq_head+18)%32] && iq_valid[(iq_head+18)%32]) || (iq_dmemreq_bitmask[(iq_head+19)%32] && iq_valid[(iq_head+19)%32]) || (iq_dmemreq_bitmask[(iq_head+20)%32] && iq_valid[(iq_head+20)%32]) || (iq_dmemreq_bitmask[(iq_head+21)%32] && iq_valid[(iq_head+21)%32]) || (iq_dmemreq_bitmask[(iq_head+22)%32] && iq_valid[(iq_head+22)%32]) || (iq_dmemreq_bitmask[(iq_head+23)%32] && iq_valid[(iq_head+23)%32]) || (iq_dmemreq_bitmask[(iq_head+24)%32] && iq_valid[(iq_head+24)%32]))))?
+(iq_head+25)%32:
+(iq_valid[(iq_head+26)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+26)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+26)%32])) || (iq_valid[(iq_head+27)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+26)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]) || (iq_dmemreq_bitmask[(iq_head+18)%32] && iq_valid[(iq_head+18)%32]) || (iq_dmemreq_bitmask[(iq_head+19)%32] && iq_valid[(iq_head+19)%32]) || (iq_dmemreq_bitmask[(iq_head+20)%32] && iq_valid[(iq_head+20)%32]) || (iq_dmemreq_bitmask[(iq_head+21)%32] && iq_valid[(iq_head+21)%32]) || (iq_dmemreq_bitmask[(iq_head+22)%32] && iq_valid[(iq_head+22)%32]) || (iq_dmemreq_bitmask[(iq_head+23)%32] && iq_valid[(iq_head+23)%32]) || (iq_dmemreq_bitmask[(iq_head+24)%32] && iq_valid[(iq_head+24)%32]) || (iq_dmemreq_bitmask[(iq_head+25)%32] && iq_valid[(iq_head+25)%32]))))?
+(iq_head+26)%32:
+(iq_valid[(iq_head+27)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+27)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+27)%32])) || (iq_valid[(iq_head+28)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+27)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]) || (iq_dmemreq_bitmask[(iq_head+18)%32] && iq_valid[(iq_head+18)%32]) || (iq_dmemreq_bitmask[(iq_head+19)%32] && iq_valid[(iq_head+19)%32]) || (iq_dmemreq_bitmask[(iq_head+20)%32] && iq_valid[(iq_head+20)%32]) || (iq_dmemreq_bitmask[(iq_head+21)%32] && iq_valid[(iq_head+21)%32]) || (iq_dmemreq_bitmask[(iq_head+22)%32] && iq_valid[(iq_head+22)%32]) || (iq_dmemreq_bitmask[(iq_head+23)%32] && iq_valid[(iq_head+23)%32]) || (iq_dmemreq_bitmask[(iq_head+24)%32] && iq_valid[(iq_head+24)%32]) || (iq_dmemreq_bitmask[(iq_head+25)%32] && iq_valid[(iq_head+25)%32]) || (iq_dmemreq_bitmask[(iq_head+26)%32] && iq_valid[(iq_head+26)%32]))))?
+(iq_head+27)%32:
+(iq_valid[(iq_head+28)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+28)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+28)%32])) || (iq_valid[(iq_head+29)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+28)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]) || (iq_dmemreq_bitmask[(iq_head+18)%32] && iq_valid[(iq_head+18)%32]) || (iq_dmemreq_bitmask[(iq_head+19)%32] && iq_valid[(iq_head+19)%32]) || (iq_dmemreq_bitmask[(iq_head+20)%32] && iq_valid[(iq_head+20)%32]) || (iq_dmemreq_bitmask[(iq_head+21)%32] && iq_valid[(iq_head+21)%32]) || (iq_dmemreq_bitmask[(iq_head+22)%32] && iq_valid[(iq_head+22)%32]) || (iq_dmemreq_bitmask[(iq_head+23)%32] && iq_valid[(iq_head+23)%32]) || (iq_dmemreq_bitmask[(iq_head+24)%32] && iq_valid[(iq_head+24)%32]) || (iq_dmemreq_bitmask[(iq_head+25)%32] && iq_valid[(iq_head+25)%32]) || (iq_dmemreq_bitmask[(iq_head+26)%32] && iq_valid[(iq_head+26)%32]) || (iq_dmemreq_bitmask[(iq_head+27)%32] && iq_valid[(iq_head+27)%32]))))?
+(iq_head+28)%32:
+(iq_valid[(iq_head+29)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+29)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+29)%32])) || (iq_valid[(iq_head+30)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+29)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]) || (iq_dmemreq_bitmask[(iq_head+18)%32] && iq_valid[(iq_head+18)%32]) || (iq_dmemreq_bitmask[(iq_head+19)%32] && iq_valid[(iq_head+19)%32]) || (iq_dmemreq_bitmask[(iq_head+20)%32] && iq_valid[(iq_head+20)%32]) || (iq_dmemreq_bitmask[(iq_head+21)%32] && iq_valid[(iq_head+21)%32]) || (iq_dmemreq_bitmask[(iq_head+22)%32] && iq_valid[(iq_head+22)%32]) || (iq_dmemreq_bitmask[(iq_head+23)%32] && iq_valid[(iq_head+23)%32]) || (iq_dmemreq_bitmask[(iq_head+24)%32] && iq_valid[(iq_head+24)%32]) || (iq_dmemreq_bitmask[(iq_head+25)%32] && iq_valid[(iq_head+25)%32]) || (iq_dmemreq_bitmask[(iq_head+26)%32] && iq_valid[(iq_head+26)%32]) || (iq_dmemreq_bitmask[(iq_head+27)%32] && iq_valid[(iq_head+27)%32]) || (iq_dmemreq_bitmask[(iq_head+28)%32] && iq_valid[(iq_head+28)%32]))))?
+(iq_head+29)%32:
+(iq_valid[(iq_head+30)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+30)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+30)%32])) || (iq_valid[(iq_head+31)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+30)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]) || (iq_dmemreq_bitmask[(iq_head+18)%32] && iq_valid[(iq_head+18)%32]) || (iq_dmemreq_bitmask[(iq_head+19)%32] && iq_valid[(iq_head+19)%32]) || (iq_dmemreq_bitmask[(iq_head+20)%32] && iq_valid[(iq_head+20)%32]) || (iq_dmemreq_bitmask[(iq_head+21)%32] && iq_valid[(iq_head+21)%32]) || (iq_dmemreq_bitmask[(iq_head+22)%32] && iq_valid[(iq_head+22)%32]) || (iq_dmemreq_bitmask[(iq_head+23)%32] && iq_valid[(iq_head+23)%32]) || (iq_dmemreq_bitmask[(iq_head+24)%32] && iq_valid[(iq_head+24)%32]) || (iq_dmemreq_bitmask[(iq_head+25)%32] && iq_valid[(iq_head+25)%32]) || (iq_dmemreq_bitmask[(iq_head+26)%32] && iq_valid[(iq_head+26)%32]) || (iq_dmemreq_bitmask[(iq_head+27)%32] && iq_valid[(iq_head+27)%32]) || (iq_dmemreq_bitmask[(iq_head+28)%32] && iq_valid[(iq_head+28)%32]) || (iq_dmemreq_bitmask[(iq_head+29)%32] && iq_valid[(iq_head+29)%32]))))?
+(iq_head+30)%32:
+(iq_valid[(iq_head+31)%32] && ((sb_src_ready[iq_rob_fill_slot[(iq_head+31)%32]] && !(brj_resolved_X0hl && brj_taken_X0hl && iq_spec[(iq_head+31)%32])) || (iq_valid[(iq_head+32)%32] && squash_first_I_inst_Ihl)) && (!iq_dmemreq_bitmask[(iq_head+31)%32] || !((iq_dmemreq_bitmask[(iq_head+0)%32] && iq_valid[(iq_head+0)%32]) || (iq_dmemreq_bitmask[(iq_head+1)%32] && iq_valid[(iq_head+1)%32]) || (iq_dmemreq_bitmask[(iq_head+2)%32] && iq_valid[(iq_head+2)%32]) || (iq_dmemreq_bitmask[(iq_head+3)%32] && iq_valid[(iq_head+3)%32]) || (iq_dmemreq_bitmask[(iq_head+4)%32] && iq_valid[(iq_head+4)%32]) || (iq_dmemreq_bitmask[(iq_head+5)%32] && iq_valid[(iq_head+5)%32]) || (iq_dmemreq_bitmask[(iq_head+6)%32] && iq_valid[(iq_head+6)%32]) || (iq_dmemreq_bitmask[(iq_head+7)%32] && iq_valid[(iq_head+7)%32]) || (iq_dmemreq_bitmask[(iq_head+8)%32] && iq_valid[(iq_head+8)%32]) || (iq_dmemreq_bitmask[(iq_head+9)%32] && iq_valid[(iq_head+9)%32]) || (iq_dmemreq_bitmask[(iq_head+10)%32] && iq_valid[(iq_head+10)%32]) || (iq_dmemreq_bitmask[(iq_head+11)%32] && iq_valid[(iq_head+11)%32]) || (iq_dmemreq_bitmask[(iq_head+12)%32] && iq_valid[(iq_head+12)%32]) || (iq_dmemreq_bitmask[(iq_head+13)%32] && iq_valid[(iq_head+13)%32]) || (iq_dmemreq_bitmask[(iq_head+14)%32] && iq_valid[(iq_head+14)%32]) || (iq_dmemreq_bitmask[(iq_head+15)%32] && iq_valid[(iq_head+15)%32]) || (iq_dmemreq_bitmask[(iq_head+16)%32] && iq_valid[(iq_head+16)%32]) || (iq_dmemreq_bitmask[(iq_head+17)%32] && iq_valid[(iq_head+17)%32]) || (iq_dmemreq_bitmask[(iq_head+18)%32] && iq_valid[(iq_head+18)%32]) || (iq_dmemreq_bitmask[(iq_head+19)%32] && iq_valid[(iq_head+19)%32]) || (iq_dmemreq_bitmask[(iq_head+20)%32] && iq_valid[(iq_head+20)%32]) || (iq_dmemreq_bitmask[(iq_head+21)%32] && iq_valid[(iq_head+21)%32]) || (iq_dmemreq_bitmask[(iq_head+22)%32] && iq_valid[(iq_head+22)%32]) || (iq_dmemreq_bitmask[(iq_head+23)%32] && iq_valid[(iq_head+23)%32]) || (iq_dmemreq_bitmask[(iq_head+24)%32] && iq_valid[(iq_head+24)%32]) || (iq_dmemreq_bitmask[(iq_head+25)%32] && iq_valid[(iq_head+25)%32]) || (iq_dmemreq_bitmask[(iq_head+26)%32] && iq_valid[(iq_head+26)%32]) || (iq_dmemreq_bitmask[(iq_head+27)%32] && iq_valid[(iq_head+27)%32]) || (iq_dmemreq_bitmask[(iq_head+28)%32] && iq_valid[(iq_head+28)%32]) || (iq_dmemreq_bitmask[(iq_head+29)%32] && iq_valid[(iq_head+29)%32]) || (iq_dmemreq_bitmask[(iq_head+30)%32] && iq_valid[(iq_head+30)%32]))))?
+(iq_head+31)%32:
+                  5'bxxxxx;
 
-  wire [4:0] k = (j+1)%32;
+  wire [4:0] k = ((j+1)%32 == iq_tail)?5'bxxxxx:(j+1)%32;//(!(iq_dmemreq_bitmask[j] && iq_dmemreq_bitmask[(j+1)%32]))?(j+1)%32:5'bxxxxx;
 
   always @(posedge clk) begin
-    if( iq_valid[j] && sb_src_ready[iq_rob_fill_slot[j]] && iq_valid[k] && sb_src_ready[iq_rob_fill_slot[k]] && iq_dequeue_rdy0 && iq_dequeue_rdy1) begin
+    if( !(j=== 5'bxxxxx) && iq_dequeue_rdy0) begin
       iq_valid[j] <= 1'b0;
       iq_spec[j] <= 1'b0;
       iq_ir[j]   <= 32'b0;
@@ -599,42 +646,43 @@ module riscv_CoreIssueQueue
       iq_op0_mux_sel[j]    <= 2'b0;
       iq_op1_mux_sel[j]    <= 3'b0;
 
+      if (!(k === 5'bxxxxx) && iq_dequeue_rdy1 && iq_valid[k] ) begin
+        iq_valid[k] <= 1'b0;
+        iq_spec[k] <= 1'b0;
+        iq_ir[k]   <= 32'b0;
+        iq_ir_squashed[k]    <= 1'b0;
+        iq_rf_wen[k]   <= 1'b0;
+        iq_rf_waddr[k]   <= 5'b0;
+        iq_alu_fn[k]   <= 4'b0;
+        iq_br_sel[k]   <= 3'b0;
+        iq_j_en[k]   <= 1'b0;
+        iq_pc_mux_sel[k]   <= 2'b0;
+        iq_muldivreq_val[k]    <= 1'b0;
+        iq_muldivreq_msg_fn[k]   <= 3'b0;
+        iq_muldiv_mux_sel[k]   <= 1'b0;
+        iq_execute_mux_sel[k]    <= 1'b0;
+        iq_dmemreq_msg_rw[k]   <= 1'b0;
+        iq_dmemreq_msg_len[k]    <= 2'b0;
+        iq_dmemreq_val[k]    <= 1'b0;
+        iq_dmemresp_mux_sel[k]   <= 3'b0;
+        iq_memex_mux_sel[k]    <= 1'b0;
+        iq_csr_wen[k]    <= 1'b0;
+        iq_csr_addr[k]   <= 12'b0;
 
-      iq_valid[k] <= 1'b0;
-      iq_spec[k] <= 1'b0;
-      iq_ir[k]   <= 32'b0;
-      iq_ir_squashed[k]    <= 1'b0;
-      iq_rf_wen[k]   <= 1'b0;
-      iq_rf_waddr[k]   <= 5'b0;
-      iq_alu_fn[k]   <= 4'b0;
-      iq_br_sel[k]   <= 3'b0;
-      iq_j_en[k]   <= 1'b0;
-      iq_pc_mux_sel[k]   <= 2'b0;
-      iq_muldivreq_val[k]    <= 1'b0;
-      iq_muldivreq_msg_fn[k]   <= 3'b0;
-      iq_muldiv_mux_sel[k]   <= 1'b0;
-      iq_execute_mux_sel[k]    <= 1'b0;
-      iq_dmemreq_msg_rw[k]   <= 1'b0;
-      iq_dmemreq_msg_len[k]    <= 2'b0;
-      iq_dmemreq_val[k]    <= 1'b0;
-      iq_dmemresp_mux_sel[k]   <= 3'b0;
-      iq_memex_mux_sel[k]    <= 1'b0;
-      iq_csr_wen[k]    <= 1'b0;
-      iq_csr_addr[k]   <= 12'b0;
+        iq_rs0_addr[k]   <= 5'b0;
+        iq_rs1_addr[k]   <= 5'b0;
+        iq_rs0_en[k]   <= 1'b0;
+        iq_rs1_en[k]   <= 1'b0;
+        iq_rob_fill_slot[k]   <= 5'b0;
 
-      iq_rs0_addr[k]   <= 5'b0;
-      iq_rs1_addr[k]   <= 5'b0;
-      iq_rs0_en[k]   <= 1'b0;
-      iq_rs1_en[k]   <= 1'b0;
-      iq_rob_fill_slot[k]   <= 5'b0;
+        iq_rs0_renamed[k]    <= 1'b0;
+        iq_rs1_renamed[k]    <= 1'b0;
+        iq_rs0_rt_slot[k]    <= 5'b0;
+        iq_rs1_rt_slot[k]    <= 5'b0;
 
-      iq_rs0_renamed[k]    <= 1'b0;
-      iq_rs1_renamed[k]    <= 1'b0;
-      iq_rs0_rt_slot[k]    <= 5'b0;
-      iq_rs1_rt_slot[k]    <= 5'b0;
-
-      iq_op0_mux_sel[k]    <= 2'b0;
-      iq_op1_mux_sel[k]    <= 3'b0;
+        iq_op0_mux_sel[k]    <= 2'b0;
+        iq_op1_mux_sel[k]    <= 3'b0;
+      end
     end
   end   
 
