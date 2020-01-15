@@ -102,7 +102,9 @@ module riscv_CoreCtrl
 
   // iq signals
   output [ 4:0]  iq_slot_A_Dhl,
+  output [ 4:0]  iq_slot_B_Dhl,
   output [ 4:0]  iq_slot_A_Ihl,
+  output [ 4:0]  iq_slot_B_Ihl,
   // CSR Status
 
   output [31:0] csr_status
@@ -900,7 +902,9 @@ module riscv_CoreCtrl
     .iq_dequeue_val0    (dequeue_val0),
     .iq_dequeue_val1    (dequeue_val1),
     .iq_enqueue_slot0   (iq_slot_A_Dhl),
+    .iq_enqueue_slot1   (iq_slot_B_Dhl),
     .iq_dequeue_slot0   (iq_slot_A_Ihl),
+    .iq_dequeue_slot1   (iq_slot_B_Ihl),
     .sb_src_ready (sb_src_ready),
 
     
@@ -1614,7 +1618,7 @@ module riscv_CoreCtrl
       // Squash the first I instruction if only instruction 0 is issued
       // and it is not a jump
 
-      if( ir0_issued_Ihl && !ir1_issued_Ihl && !brj_taken_Ihl ) begin
+      if( ir0_issued_Ihl && !ir1_issued_Ihl && !brj_taken_Ihl && dequeue_val1) begin
         squash_first_I_inst_Ihl <= 1'b1;
       end
       else if( ir1_issued_Ihl || brj_taken_Ihl || brj_taken_X0hl ) begin

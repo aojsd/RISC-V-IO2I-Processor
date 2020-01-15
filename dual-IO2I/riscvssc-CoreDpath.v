@@ -74,7 +74,9 @@ module riscv_CoreDpath
 
   // issue queue signals (ctrol -> dpath)
   input [ 4:0]  iq_slot_A_Dhl,
+  input [ 4:0]  iq_slot_B_Dhl,
   input [ 4:0]  iq_slot_A_Ihl,
+  input [ 4:0]  iq_slot_B_Ihl,
 
   // Reorder Buffer Signals (ctrl->dpath)
 
@@ -183,23 +185,28 @@ module riscv_CoreDpath
   reg [31:0] iq_pc_plus4_Ihl [31:0];
   reg [31:0] iq_pc_plus8_Ihl [31:0];
 
-  wire [31:0] pc_Ihl = iq_pc_Ihl[iq_slot_A_Ihl];
-  wire [31:0] pc_plus4_Ihl = iq_pc_plus4_Ihl[iq_slot_A_Ihl];
-  wire [31:0] pc_plus8_Ihl = iq_pc_plus8_Ihl[iq_slot_A_Ihl];
+  wire [31:0] pc0_Ihl = iq_pc_Ihl[iq_slot_A_Ihl];
+  wire [31:0] pc0_plus4_Ihl = iq_pc_plus4_Ihl[iq_slot_A_Ihl];
+  wire [31:0] pc1_Ihl = iq_pc_Ihl[iq_slot_B_Ihl];
+  wire [31:0] pc1_plus4_Ihl = iq_pc_plus4_Ihl[iq_slot_B_Ihl];
 
   integer iq_i;
   always @(posedge reset) begin
     for (iq_i = 0 ; iq_i < 32 ; iq_i = iq_i + 1) begin
       iq_pc_Ihl[iq_i] <= reset_vector;
       iq_pc_plus4_Ihl[iq_i] <= reset_vector;
-      iq_pc_plus8_Ihl[iq_i] <= reset_vector;
     end
   end
 
   always @ (posedge clk) begin
+    if (! (iq_slot_A_Dhl === 5'bxxxxx)) begin
       iq_pc_Ihl[iq_slot_A_Dhl]        <= pc_Dhl;
       iq_pc_plus4_Ihl[iq_slot_A_Dhl]  <= pc_plus4_Dhl;
-      iq_pc_plus8_Ihl[iq_slot_A_Dhl]  <= pc_plus8_Dhl;
+    end
+    if (! (iq_slot_B_Dhl === 5'bxxxxx)) begin
+      iq_pc_Ihl[iq_slot_B_Dhl]        <= pc_plus4_Dhl;
+      iq_pc_plus4_Ihl[iq_slot_B_Dhl]  <= pc_plus8_Dhl;
+    end
   end
 
   //--------------------------------------------------------------------
@@ -272,23 +279,23 @@ module riscv_CoreDpath
   wire [31:0] jump_targ_Ihl;
 
   assign pcA_Ihl = 
-    (steering_mux_sel_Ihl == 1'b0) ? pc_Ihl :
-    (steering_mux_sel_Ihl == 1'b1) ? pc_plus4_Ihl :
+    (steering_mux_sel_Ihl == 1'b0) ? pc0_Ihl :
+    (steering_mux_sel_Ihl == 1'b1) ? pc1_Ihl :
                                      32'bx;
 
   assign pcA_plus4_Ihl =
-    (steering_mux_sel_Ihl == 1'b0) ? pc_plus4_Ihl :
-    (steering_mux_sel_Ihl == 1'b1) ? pc_plus8_Ihl :
+    (steering_mux_sel_Ihl == 1'b0) ? pc0_plus4_Ihl :
+    (steering_mux_sel_Ihl == 1'b1) ? pc1_plus4_Ihl :
                                      32'bx;
 
   assign pcB_Ihl = 
-    (steering_mux_sel_Ihl == 1'b0) ? pc_plus4_Ihl :
-    (steering_mux_sel_Ihl == 1'b1) ? pc_Ihl :
+    (steering_mux_sel_Ihl == 1'b0) ? pc1_Ihl :
+    (steering_mux_sel_Ihl == 1'b1) ? pc0_Ihl :
                                      32'bx;
 
   assign pcB_plus4_Ihl =
-    (steering_mux_sel_Ihl == 1'b0) ? pc_plus8_Ihl :
-    (steering_mux_sel_Ihl == 1'b1) ? pc_plus4_Ihl :
+    (steering_mux_sel_Ihl == 1'b0) ? pc1_plus4_Ihl :
+    (steering_mux_sel_Ihl == 1'b1) ? pc0_plus4_Ihl :
                                      32'bx;
 
   assign branch_targ_Ihl = pcA_Ihl + instA_imm_sb_Ihl;
