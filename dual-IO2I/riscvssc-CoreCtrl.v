@@ -749,8 +749,8 @@ module riscv_CoreCtrl
   wire rob_req_val_1_Dhl = inst_val_Dhl && !stall_agg_Dhl && !squash_ir0_Dhl;
   wire rob_req_val_2_Dhl = inst_val_Dhl && !stall_Dhl && !j0_en_Dhl && !double_br_Dhl;
 
-  wire rob_req_spec_1_Dhl = spec_Dhl;
-  wire rob_req_spec_2_Dhl = spec_Dhl || (br0_sel_Dhl != br_none && !squash_ir0_Dhl);
+  wire rob_req_spec_1_Dhl = spec_Dhl && !(brj_resolved_X0hl);
+  wire rob_req_spec_2_Dhl = (spec_Dhl || (br0_sel_Dhl != br_none && !squash_ir0_Dhl))&& !(brj_resolved_X0hl);
 
   reg rs00_renamed_Dhl;
   reg rs01_renamed_Dhl;

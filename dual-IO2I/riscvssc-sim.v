@@ -239,11 +239,11 @@ module riscv_sim;
       if ( proc.ctrl.bubble_Fhl )
         $write( "/{  (-_-)   |" );
       else if ( proc.ctrl.squash_Fhl )
-        $write( "/{-%h-|", proc.dpath.pc_Fhl );
+        $write( "/{-%h- %h |", proc.dpath.pc_Fhl, proc.ctrl.ir0_Ihl);
       else if ( proc.ctrl.stall_Fhl )
-        $write( "/{#%h |", proc.dpath.pc_Fhl );
+        $write( "/{#%h  %h |", proc.dpath.pc_Fhl, proc.ctrl.ir0_Ihl);
       else
-        $write( "/{ %h |", proc.dpath.pc_Fhl );
+        $write( "/{ %h  %h |", proc.dpath.pc_Fhl, proc.ctrl.ir0_Ihl);
 
       // Decode Stage
 
@@ -259,9 +259,9 @@ module riscv_sim;
       $write( "|" );
 
       if ( proc.ctrl.steering_mux_sel_Ihl )
-        $write( " \\/ " );
+        $write( " \\/ %h ", proc.ctrl.irB_Ihl );
       else
-        $write( " -- " );
+        $write( " -- %h ", proc.ctrl.irA_Ihl );
 
       $write( "|" );
 
@@ -335,11 +335,11 @@ module riscv_sim;
       if ( proc.ctrl.bubble_Fhl )
         $write( "\\{  (-_-)   |" );
       else if ( proc.ctrl.squash_Fhl )
-        $write( "\\{-%h-|", proc.dpath.pc_Fhl + 32'd4 );
+        $write( "\\{-%h- %h |", proc.dpath.pc_Fhl + 32'd4, proc.ctrl.ir1_Ihl );
       else if ( proc.ctrl.stall_Fhl )
-        $write( "\\{#%h |", proc.dpath.pc_Fhl + 32'd4 );
+        $write( "\\{#%h  %h |", proc.dpath.pc_Fhl + 32'd4, proc.ctrl.ir1_Ihl );
       else
-        $write( "\\{ %h |", proc.dpath.pc_Fhl + 32'd4 );
+        $write( "\\{ %h  %h |", proc.dpath.pc_Fhl + 32'd4, proc.ctrl.ir1_Ihl );
 
       // Decode Stage
 
@@ -355,9 +355,9 @@ module riscv_sim;
       $write( "|" );
 
       if ( proc.ctrl.steering_mux_sel_Ihl )
-        $write( " /\\ " );
+        $write( " /\\ %h ", proc.ctrl.irA_Ihl );
       else
-        $write( " -- " );
+        $write( " -- %h ", proc.ctrl.irB_Ihl );
 
       $write( "|" );
 

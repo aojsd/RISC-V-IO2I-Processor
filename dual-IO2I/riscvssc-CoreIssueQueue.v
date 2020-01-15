@@ -445,89 +445,89 @@ module riscv_CoreIssueQueue
   // IQ DEQUEUE
   //----------------------------------------------------------------------  
 
-  wire         iq_dequeue_val0 = (j === 5'bxxxxx)?1'b0:iq_valid[j]; // determines if input is valid
-  wire [4:0]   iq_enqueue_slot0 = iq_tail;
-  wire [4:0]   iq_dequeue_slot0 = j;
-  wire [31:0]  iq_ir0_Ihl = iq_ir[j];
-  wire         iq_ir0_squashed_Ihl = (j === 5'bxxxxx)?1'b1:
+  wire         iq_dequeue_val0 =(j === 5'bxxxxx)?1'b0:iq_valid[j]; // determines if input is valid
+  wire [4:0]   iq_enqueue_slot0 =(j === 5'bxxxxx)?1'b0:iq_tail;
+  wire [4:0]   iq_dequeue_slot0 =(j === 5'bxxxxx)?1'b0:j;
+  wire [31:0]  iq_ir0_Ihl =(j === 5'bxxxxx)?1'b0:iq_ir[j];
+  wire         iq_ir0_squashed_Ihl =(j === 5'bxxxxx)?1'b1:
                                      (iq_dequeue_val0)?iq_ir_squashed[j]:1'b1;
-  wire         iq_rf0_wen_Ihl = iq_rf_wen[j];
-  wire  [4:0]  iq_rf0_waddr_Ihl = iq_rf_waddr[j];
-  wire  [3:0]  iq_alu0_fn_Ihl = iq_alu_fn[j];
-  wire  [2:0]  iq_br0_sel_Ihl = iq_br_sel[j];
-  wire         iq_j0_en_Ihl = iq_j_en[j];
-  wire  [1:0]  iq_pc0_mux_sel_Ihl = iq_pc_mux_sel[j];
-  wire         iq_muldivreq0_val_Ihl = iq_muldivreq_val[j];
-  wire  [2:0]  iq_muldivreq0_msg_fn_Ihl = iq_muldivreq_msg_fn[j];
-  wire         iq_muldiv0_mux_sel_Ihl = iq_muldiv_mux_sel[j];
-  wire         iq_execute0_mux_sel_Ihl = iq_execute_mux_sel[j];
-  wire         iq_dmemreq0_msg_rw_Ihl = iq_dmemreq_msg_rw[j];
-  wire  [1:0]  iq_dmemreq0_msg_len_Ihl = iq_dmemreq_msg_len[j];
-  wire         iq_dmemreq0_val_Ihl = iq_dmemreq_val[j];
-  wire  [2:0]  iq_dmemresp0_mux_sel_Ihl = iq_dmemresp_mux_sel[j];
-  wire         iq_memex0_mux_sel_Ihl = iq_memex_mux_sel[j];
-  wire         iq_csr0_wen_Ihl = iq_csr_wen[j];
-  wire [11:0]  iq_csr0_addr_Ihl = iq_csr_addr[j];
+  wire         iq_rf0_wen_Ihl = (j === 5'bxxxxx)?1'b0: iq_rf_wen[j];
+  wire  [4:0]  iq_rf0_waddr_Ihl = (j === 5'bxxxxx)?1'b0: iq_rf_waddr[j];
+  wire  [3:0]  iq_alu0_fn_Ihl = (j === 5'bxxxxx)?1'b0: iq_alu_fn[j];
+  wire  [2:0]  iq_br0_sel_Ihl = (j === 5'bxxxxx)?1'b0: iq_br_sel[j];
+  wire         iq_j0_en_Ihl = (j === 5'bxxxxx)?1'b0: iq_j_en[j];
+  wire  [1:0]  iq_pc0_mux_sel_Ihl = (j === 5'bxxxxx)?1'b0: iq_pc_mux_sel[j];
+  wire         iq_muldivreq0_val_Ihl = (j === 5'bxxxxx)?1'b0: iq_muldivreq_val[j];
+  wire  [2:0]  iq_muldivreq0_msg_fn_Ihl = (j === 5'bxxxxx)?1'b0: iq_muldivreq_msg_fn[j];
+  wire         iq_muldiv0_mux_sel_Ihl = (j === 5'bxxxxx)?1'b0: iq_muldiv_mux_sel[j];
+  wire         iq_execute0_mux_sel_Ihl = (j === 5'bxxxxx)?1'b0: iq_execute_mux_sel[j];
+  wire         iq_dmemreq0_msg_rw_Ihl = (j === 5'bxxxxx)?1'b0: iq_dmemreq_msg_rw[j];
+  wire  [1:0]  iq_dmemreq0_msg_len_Ihl = (j === 5'bxxxxx)?1'b0: iq_dmemreq_msg_len[j];
+  wire         iq_dmemreq0_val_Ihl = (j === 5'bxxxxx)?1'b0: iq_dmemreq_val[j];
+  wire  [2:0]  iq_dmemresp0_mux_sel_Ihl = (j === 5'bxxxxx)?1'b0: iq_dmemresp_mux_sel[j];
+  wire         iq_memex0_mux_sel_Ihl = (j === 5'bxxxxx)?1'b0: iq_memex_mux_sel[j];
+  wire         iq_csr0_wen_Ihl = (j === 5'bxxxxx)?1'b0: iq_csr_wen[j];
+  wire [11:0]  iq_csr0_addr_Ihl = (j === 5'bxxxxx)?1'b0: iq_csr_addr[j];
 
-  wire  [4:0]  iq_rs00_addr_Ihl = iq_rs0_addr[j];
-  wire  [4:0]  iq_rs01_addr_Ihl = iq_rs1_addr[j];
+  wire  [4:0]  iq_rs00_addr_Ihl = (j === 5'bxxxxx)?1'b0:iq_rs0_addr[j];
+  wire  [4:0]  iq_rs01_addr_Ihl = (j === 5'bxxxxx)?1'b0:iq_rs1_addr[j];
 
   wire         iq_dequeue_val1 = (k === 5'bxxxxx)?1'b0:iq_valid[k]; // determines if input is valid
-  wire [4:0]   iq_enqueue_slot1 = iq_tail_next;
-  wire [4:0]   iq_dequeue_slot1 = k;
+  wire [4:0]   iq_enqueue_slot1 = (k === 5'bxxxxx)?1'b0:iq_tail_next;
+  wire [4:0]   iq_dequeue_slot1 = (k === 5'bxxxxx)?1'b0:k;
 
-  wire [31:0]  iq_ir1_Ihl = iq_ir[k];
+  wire [31:0]  iq_ir1_Ihl = (k === 5'bxxxxx)?1'b0:iq_ir[k];
   wire         iq_ir1_squashed_Ihl = (k === 5'bxxxxx)?1'b1:
                                      (iq_dequeue_val1)?iq_ir_squashed[k]:1'b1;
-  wire         iq_rf1_wen_Ihl = iq_rf_wen[k];
-  wire  [4:0]  iq_rf1_waddr_Ihl = iq_rf_waddr[k];
-  wire  [3:0]  iq_alu1_fn_Ihl = iq_alu_fn[k];
-  wire  [2:0]  iq_br1_sel_Ihl = iq_br_sel[k];
-  wire         iq_j1_en_Ihl = iq_j_en[k];
-  wire  [1:0]  iq_pc1_mux_sel_Ihl = iq_pc_mux_sel[k];
-  wire         iq_muldivreq1_val_Ihl = iq_muldivreq_val[k];
-  wire  [2:0]  iq_muldivreq1_msg_fn_Ihl = iq_muldivreq_msg_fn[k];
-  wire         iq_muldiv1_mux_sel_Ihl = iq_muldiv_mux_sel[k];
-  wire         iq_execute1_mux_sel_Ihl = iq_execute_mux_sel[k];
-  wire         iq_dmemreq1_msg_rw_Ihl = iq_dmemreq_msg_rw[k];
-  wire  [1:0]  iq_dmemreq1_msg_len_Ihl = iq_dmemreq_msg_len[k];
-  wire         iq_dmemreq1_val_Ihl = iq_dmemreq_val[k];
-  wire  [2:0]  iq_dmemresp1_mux_sel_Ihl = iq_dmemresp_mux_sel[k];
-  wire         iq_memex1_mux_sel_Ihl = iq_memex_mux_sel[k];
-  wire         iq_csr1_wen_Ihl = iq_csr_wen[k];
-  wire [11:0]  iq_csr1_addr_Ihl = iq_csr_addr[k];
+  wire         iq_rf1_wen_Ihl = (k === 5'bxxxxx)?1'b0:iq_rf_wen[k];
+  wire  [4:0]  iq_rf1_waddr_Ihl = (k === 5'bxxxxx)?1'b0:iq_rf_waddr[k];
+  wire  [3:0]  iq_alu1_fn_Ihl = (k === 5'bxxxxx)?1'b0:iq_alu_fn[k];
+  wire  [2:0]  iq_br1_sel_Ihl = (k === 5'bxxxxx)?1'b0:iq_br_sel[k];
+  wire         iq_j1_en_Ihl = (k === 5'bxxxxx)?1'b0:iq_j_en[k];
+  wire  [1:0]  iq_pc1_mux_sel_Ihl = (k === 5'bxxxxx)?1'b0:iq_pc_mux_sel[k];
+  wire         iq_muldivreq1_val_Ihl = (k === 5'bxxxxx)?1'b0:iq_muldivreq_val[k];
+  wire  [2:0]  iq_muldivreq1_msg_fn_Ihl = (k === 5'bxxxxx)?1'b0:iq_muldivreq_msg_fn[k];
+  wire         iq_muldiv1_mux_sel_Ihl = (k === 5'bxxxxx)?1'b0:iq_muldiv_mux_sel[k];
+  wire         iq_execute1_mux_sel_Ihl = (k === 5'bxxxxx)?1'b0:iq_execute_mux_sel[k];
+  wire         iq_dmemreq1_msg_rw_Ihl = (k === 5'bxxxxx)?1'b0:iq_dmemreq_msg_rw[k];
+  wire  [1:0]  iq_dmemreq1_msg_len_Ihl = (k === 5'bxxxxx)?1'b0:iq_dmemreq_msg_len[k];
+  wire         iq_dmemreq1_val_Ihl = (k === 5'bxxxxx)?1'b0:iq_dmemreq_val[k];
+  wire  [2:0]  iq_dmemresp1_mux_sel_Ihl = (k === 5'bxxxxx)?1'b0:iq_dmemresp_mux_sel[k];
+  wire         iq_memex1_mux_sel_Ihl = (k === 5'bxxxxx)?1'b0:iq_memex_mux_sel[k];
+  wire         iq_csr1_wen_Ihl = (k === 5'bxxxxx)?1'b0:iq_csr_wen[k];
+  wire [11:0]  iq_csr1_addr_Ihl = (k === 5'bxxxxx)?1'b0:iq_csr_addr[k];
   
 
 
-  wire  [4:0]  iq_rs10_addr_Ihl = iq_rs0_addr[k];
-  wire  [4:0]  iq_rs11_addr_Ihl = iq_rs1_addr[k];
+  wire  [4:0]  iq_rs10_addr_Ihl = (k === 5'bxxxxx)?1'b0:iq_rs0_addr[k];
+  wire  [4:0]  iq_rs11_addr_Ihl = (k === 5'bxxxxx)?1'b0:iq_rs1_addr[k];
   
-  wire         iq_rs00_en_Ihl = iq_rs0_en[j];
-  wire         iq_rs01_en_Ihl = iq_rs1_en[j];
+  wire         iq_rs00_en_Ihl = (j === 5'bxxxxx)?1'b0:iq_rs0_en[j];
+  wire         iq_rs01_en_Ihl = (j === 5'bxxxxx)?1'b0:iq_rs1_en[j];
   
-  wire         iq_rs10_en_Ihl = iq_rs0_en[k];
-  wire         iq_rs11_en_Ihl = iq_rs1_en[k];
+  wire         iq_rs10_en_Ihl = (k === 5'bxxxxx)?1'b0:iq_rs0_en[k];
+  wire         iq_rs11_en_Ihl = (k === 5'bxxxxx)?1'b0:iq_rs1_en[k];
   
-  wire  [4:0]  iq_rob_fill_slot_0_Ihl = iq_rob_fill_slot[j];
-  wire  [4:0]  iq_rob_fill_slot_1_Ihl = iq_rob_fill_slot[k];
+  wire  [4:0]  iq_rob_fill_slot_0_Ihl = (j === 5'bxxxxx)?1'b0:iq_rob_fill_slot[j];
+  wire  [4:0]  iq_rob_fill_slot_1_Ihl = (k === 5'bxxxxx)?1'b0:iq_rob_fill_slot[k];
   
-  wire         iq_rs00_renamed_Ihl = iq_rs0_renamed[j];
-  wire         iq_rs01_renamed_Ihl = iq_rs1_renamed[j];
+  wire         iq_rs00_renamed_Ihl = (j === 5'bxxxxx)?1'b0:iq_rs0_renamed[j];
+  wire         iq_rs01_renamed_Ihl = (j === 5'bxxxxx)?1'b0:iq_rs1_renamed[j];
   
-  wire         iq_rs10_renamed_Ihl = iq_rs0_renamed[k];
-  wire         iq_rs11_renamed_Ihl = iq_rs1_renamed[k];
+  wire         iq_rs10_renamed_Ihl = (k === 5'bxxxxx)?1'b0:iq_rs0_renamed[k];
+  wire         iq_rs11_renamed_Ihl = (k === 5'bxxxxx)?1'b0:iq_rs1_renamed[k];
   
-  wire  [4:0]  iq_rs00_rt_slot_Ihl = iq_rs0_rt_slot[j];
-  wire  [4:0]  iq_rs01_rt_slot_Ihl = iq_rs1_rt_slot[j];
+  wire  [4:0]  iq_rs00_rt_slot_Ihl = (j === 5'bxxxxx)?1'b0:iq_rs0_rt_slot[j];
+  wire  [4:0]  iq_rs01_rt_slot_Ihl = (j === 5'bxxxxx)?1'b0:iq_rs1_rt_slot[j];
   
-  wire  [4:0]  iq_rs10_rt_slot_Ihl = iq_rs0_rt_slot[k];
-  wire  [4:0]  iq_rs11_rt_slot_Ihl = iq_rs1_rt_slot[k];
+  wire  [4:0]  iq_rs10_rt_slot_Ihl = (k === 5'bxxxxx)?1'b0:iq_rs0_rt_slot[k];
+  wire  [4:0]  iq_rs11_rt_slot_Ihl = (k === 5'bxxxxx)?1'b0:iq_rs1_rt_slot[k];
   
-  wire  [1:0]  iq_op00_mux_sel_Ihl = iq_op0_mux_sel[j];
-  wire  [2:0]  iq_op01_mux_sel_Ihl = iq_op1_mux_sel[j];
+  wire  [1:0]  iq_op00_mux_sel_Ihl = (j === 5'bxxxxx)?1'b0:iq_op0_mux_sel[j];
+  wire  [2:0]  iq_op01_mux_sel_Ihl = (j === 5'bxxxxx)?1'b0:iq_op1_mux_sel[j];
   
-  wire  [1:0]  iq_op10_mux_sel_Ihl = iq_op0_mux_sel[k];
-  wire  [2:0]  iq_op11_mux_sel_Ihl = iq_op1_mux_sel[k];
+  wire  [1:0]  iq_op10_mux_sel_Ihl = (k === 5'bxxxxx)?1'b0:iq_op0_mux_sel[k];
+  wire  [2:0]  iq_op11_mux_sel_Ihl = (k === 5'bxxxxx)?1'b0:iq_op1_mux_sel[k];
 
   
   // update head
